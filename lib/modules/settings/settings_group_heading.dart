@@ -1,4 +1,7 @@
-import 'package:flutter/material.dart';
+// 用 material_ui 而非 flutter/material：全 App 的 Material 来自 material_ui
+// （Flutter material 库的独立 fork，Material 是另一个类），混用会让 ListTile
+// 在 debugCheckHasMaterial 时找不到 Material 祖先。
+import 'package:material_ui/material_ui.dart';
 
 import '../../core/theme/app_dimens.dart';
 

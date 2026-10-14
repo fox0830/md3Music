@@ -43,7 +43,7 @@ Future<void> _showNativeMessageBox(String msg, {required bool long}) async {
   try {
     await channel.invokeMethod<void>('show', {
       'message': msg,
-      'title': 'MD3Music',
+      'title': '酷狗',
       // long 时带信息图标，短提示不带，避免打断感。
       'infoIcon': long,
     });

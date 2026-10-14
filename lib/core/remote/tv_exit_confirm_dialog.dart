@@ -9,7 +9,7 @@ Future<bool> showTvExitConfirmDialog(BuildContext context) async {
   final result = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      title: const Text('退出 MD3Music？'),
+      title: const Text('退出 酷狗？'),
       content: const Text('退出后将回到桌面，后台播放与本地服务保持运行。'),
       actions: [
         TextButton(

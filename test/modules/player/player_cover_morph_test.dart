@@ -118,8 +118,12 @@ void main() {
 
     test('中点：横向线性，纵向带向上弓高', () {
       final mid = coverMorphTargetRect(mini: mini, settled: settled, t: 0.5);
-      final linearY = mini.center.dy + (settled.center.dy - mini.center.dy) * 0.5;
-      expect(mid.center.dx, closeTo((mini.center.dx + settled.center.dx) / 2, 0.001));
+      final linearY =
+          mini.center.dy + (settled.center.dy - mini.center.dy) * 0.5;
+      expect(
+        mid.center.dx,
+        closeTo((mini.center.dx + settled.center.dx) / 2, 0.001),
+      );
       expect(mid.center.dy, lessThan(linearY));
       expect(mid.width, closeTo(44 + (720 - 44) * 0.5, 0.001));
     });
@@ -136,6 +140,10 @@ void main() {
     setUp(() {
       bus = PlayerCoverMorphBus.instance;
       bus.reset();
+      // 形变在生产环境已整体关闭（kCoverMorphEnabled）；机制与本文件的护栏
+      // 原样保留，这里显式开启以继续驱动真实逻辑。
+      PlayerCoverMorphBus.kCoverMorphEnabled = true;
+      addTearDown(() => PlayerCoverMorphBus.kCoverMorphEnabled = false);
     });
     tearDown(() {
       playerExpansion.value = 0.0;
@@ -208,12 +216,12 @@ void main() {
 
     test('相同输入不触发 revision（逐帧空转保护）', () {
       void publish() => bus.publishMiniText(
-            rect: const Rect.fromLTWH(60, 1900, 200, 36),
-            title: '歌名',
-            subtitle: '歌手',
-            titleStyle: const TextStyle(fontSize: 14),
-            subtitleStyle: const TextStyle(fontSize: 12),
-          );
+        rect: const Rect.fromLTWH(60, 1900, 200, 36),
+        title: '歌名',
+        subtitle: '歌手',
+        titleStyle: const TextStyle(fontSize: 14),
+        subtitleStyle: const TextStyle(fontSize: 12),
+      );
       publish();
       final after1 = bus.revision.value;
       publish();
@@ -305,9 +313,7 @@ void main() {
         );
       playerExpansion.value = 0.5;
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Stack(children: [PlayerCoverMorphLayer()]),
-        ),
+        const MaterialApp(home: Stack(children: [PlayerCoverMorphLayer()])),
       );
       expect(tester.takeException(), isNull);
     });
@@ -340,19 +346,14 @@ void main() {
       Future<void> pumpAt(double p) async {
         playerExpansion.value = p;
         await tester.pumpWidget(
-          const MaterialApp(
-            home: Stack(children: [PlayerCoverMorphLayer()]),
-          ),
+          const MaterialApp(home: Stack(children: [PlayerCoverMorphLayer()])),
         );
       }
 
       double tailWidthFactor() => tester
           .widget<Align>(
             find
-                .ancestor(
-                  of: find.text(' · 专辑名'),
-                  matching: find.byType(Align),
-                )
+                .ancestor(of: find.text(' · 专辑名'), matching: find.byType(Align))
                 .first,
           )
           .widthFactor!;
@@ -405,9 +406,7 @@ void main() {
         );
       playerExpansion.value = 0.5;
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Stack(children: [PlayerCoverMorphLayer()]),
-        ),
+        const MaterialApp(home: Stack(children: [PlayerCoverMorphLayer()])),
       );
       expect(tester.takeException(), isNull);
       // 只看「追加后缀」那两段：前缀与后缀都不得用省略号。
@@ -449,9 +448,7 @@ void main() {
         );
       playerExpansion.value = 0.5;
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Stack(children: [PlayerCoverMorphLayer()]),
-        ),
+        const MaterialApp(home: Stack(children: [PlayerCoverMorphLayer()])),
       );
       final column = tester.widget<Column>(
         find
@@ -486,9 +483,7 @@ void main() {
         );
       playerExpansion.value = 0.5;
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Stack(children: [PlayerCoverMorphLayer()]),
-        ),
+        const MaterialApp(home: Stack(children: [PlayerCoverMorphLayer()])),
       );
       // 中途应同时画出迷你条那套与播放页那套文字（内容交叉淡入的两层）
       expect(find.text('歌名'), findsWidgets);
@@ -498,8 +493,11 @@ void main() {
           .map((t) => t.style?.fontSize)
           .whereType<double>()
           .toSet();
-      expect(sizes.any((s) => s > 14 + 0.01 && s < 24 - 0.01), isTrue,
-          reason: '字号应介于 14 与 24 之间，实际 $sizes');
+      expect(
+        sizes.any((s) => s > 14 + 0.01 && s < 24 - 0.01),
+        isTrue,
+        reason: '字号应介于 14 与 24 之间，实际 $sizes',
+      );
     });
   });
 
@@ -509,6 +507,10 @@ void main() {
     setUp(() {
       bus = PlayerCoverMorphBus.instance;
       bus.reset();
+      // 形变在生产环境已整体关闭（kCoverMorphEnabled）；机制与本文件的护栏
+      // 原样保留，这里显式开启以继续驱动真实逻辑。
+      PlayerCoverMorphBus.kCoverMorphEnabled = true;
+      addTearDown(() => PlayerCoverMorphBus.kCoverMorphEnabled = false);
       playerCoverVisible.value = true;
     });
     tearDown(() {
@@ -536,8 +538,7 @@ void main() {
 
       playerCoverVisible.value = false;
       expect(bus.willDraw(eligible: true), isFalse);
-      expect(bus.layerWillDraw, isFalse,
-          reason: 'MiniPlayer 据此决定要不要让位，必须一起为假');
+      expect(bus.layerWillDraw, isFalse, reason: 'MiniPlayer 据此决定要不要让位，必须一起为假');
       expect(bus.textWillDraw, isFalse, reason: '文字也必须一起屏蔽');
     });
 
@@ -603,6 +604,9 @@ void main() {
 
     test('端点复位锁存：收起后再次转场不继承上一程的「不合格」', () {
       final bus = PlayerCoverMorphBus.instance;
+      // 形变在生产环境已整体关闭（kCoverMorphEnabled）；本用例驱动真实逻辑。
+      PlayerCoverMorphBus.kCoverMorphEnabled = true;
+      addTearDown(() => PlayerCoverMorphBus.kCoverMorphEnabled = false);
       bus.reset();
       // 第一程：起点合格 → 全程接管
       expect(bus.resolveCoverEligible(expansion: 0.3, live: true), isTrue);
@@ -622,6 +626,9 @@ void main() {
 
     test('封面 / 文字两路锁存相互独立：频谱圆盘下只锁文字', () {
       final bus = PlayerCoverMorphBus.instance;
+      // 形变在生产环境已整体关闭（kCoverMorphEnabled）；本用例驱动真实逻辑。
+      PlayerCoverMorphBus.kCoverMorphEnabled = true;
+      addTearDown(() => PlayerCoverMorphBus.kCoverMorphEnabled = false);
       bus.reset();
       // 频谱圆盘：封面不合格（形变层画不出圆形裁切 + 旋转），文字合格
       expect(bus.resolveCoverEligible(expansion: 0.2, live: false), isFalse);
@@ -638,6 +645,9 @@ void main() {
 
     test('reset() 同时清掉两路锁存', () {
       final bus = PlayerCoverMorphBus.instance;
+      // 形变在生产环境已整体关闭（kCoverMorphEnabled）；本用例驱动真实逻辑。
+      PlayerCoverMorphBus.kCoverMorphEnabled = true;
+      addTearDown(() => PlayerCoverMorphBus.kCoverMorphEnabled = false);
       bus.reset();
       bus.resolveCoverEligible(expansion: 0.4, live: true);
       bus.resolveTextEligible(expansion: 0.4, live: true);
@@ -650,6 +660,9 @@ void main() {
 
     test('layerWillDraw：与 willDraw 同源，三方判据一致', () {
       final bus = PlayerCoverMorphBus.instance;
+      // 形变在生产环境已整体关闭（kCoverMorphEnabled）；本用例驱动真实逻辑。
+      PlayerCoverMorphBus.kCoverMorphEnabled = true;
+      addTearDown(() => PlayerCoverMorphBus.kCoverMorphEnabled = false);
       bus.reset();
       // 端点缺失 → 不画（此刻不能隐藏 MiniPlayer 封面，否则会留洞）
       bus.eligible = true;
@@ -744,18 +757,18 @@ void main() {
 
     test('相同输入不触发 revision（形变层不空转重建）', () {
       void publish() => bus.publishFull(
-            measured: const Rect.fromLTWH(40, 300, 360, 360),
-            logicalSize: const Size(360, 360),
-            pageOffset: const Offset(0, 100),
-            songId: 's1',
-            artworkUri: 'http://x/a.jpg',
-            fallbackFilePath: null,
-            iconSize: 48,
-            placeholderColor: const Color(0xFF123456),
-            eligible: true,
-            settledArtworkScale: 1.0,
-            settledArtworkAnchor: Alignment.center,
-          );
+        measured: const Rect.fromLTWH(40, 300, 360, 360),
+        logicalSize: const Size(360, 360),
+        pageOffset: const Offset(0, 100),
+        songId: 's1',
+        artworkUri: 'http://x/a.jpg',
+        fallbackFilePath: null,
+        iconSize: 48,
+        placeholderColor: const Color(0xFF123456),
+        eligible: true,
+        settledArtworkScale: 1.0,
+        settledArtworkAnchor: Alignment.center,
+      );
       publish();
       final after1 = bus.revision.value;
       publish();
@@ -898,19 +911,11 @@ void main() {
 
     test('点击映射：dy = 0.15 * (1 - progress) * 屏高', () {
       expect(
-        playerPageOffset(
-          progress: 0.0,
-          dragOrigin: null,
-          screenHeight: 1000,
-        ),
+        playerPageOffset(progress: 0.0, dragOrigin: null, screenHeight: 1000),
         const Offset(0, 150),
       );
       expect(
-        playerPageOffset(
-          progress: 0.5,
-          dragOrigin: null,
-          screenHeight: 1000,
-        ),
+        playerPageOffset(progress: 0.5, dragOrigin: null, screenHeight: 1000),
         const Offset(0, 75),
       );
     });
@@ -932,6 +937,10 @@ void main() {
     setUp(() {
       bus = PlayerCoverMorphBus.instance;
       bus.reset();
+      // 形变在生产环境已整体关闭（kCoverMorphEnabled）；机制与本文件的护栏
+      // 原样保留，这里显式开启以继续驱动真实逻辑。
+      PlayerCoverMorphBus.kCoverMorphEnabled = true;
+      addTearDown(() => PlayerCoverMorphBus.kCoverMorphEnabled = false);
       bus
         ..miniRect = mini
         ..publishFull(
@@ -956,16 +965,14 @@ void main() {
     });
 
     Future<void> pumpLayer(WidgetTester tester) => tester.pumpWidget(
-          const MaterialApp(
-            home: Stack(children: [PlayerCoverMorphLayer()]),
-          ),
-        );
+      const MaterialApp(home: Stack(children: [PlayerCoverMorphLayer()])),
+    );
 
     /// 只在形变层自己的子树里找，避免命中 MaterialApp 内部的同名控件
     Finder layerClip() => find.descendant(
-          of: find.byType(PlayerCoverMorphLayer),
-          matching: find.byType(ClipRRect),
-        );
+      of: find.byType(PlayerCoverMorphLayer),
+      matching: find.byType(ClipRRect),
+    );
 
     testWidgets('挂载之后 playerExpansion 变化才重新画出形变层（真机转场路径）', (tester) async {
       // 先以 p=0 挂载（真机上 App 启动时的状态），**再**把进度推到中途。
@@ -990,10 +997,10 @@ void main() {
       await pumpLayer(tester);
       // 屏幕上真正生效的圆角 = 局部半径 × scale（子树被 Transform 缩放）
       double screenRadiusAt(double p) {
-        final local = (tester.widget<ClipRRect>(layerClip()).borderRadius
-                as BorderRadius)
-            .topLeft
-            .x;
+        final local =
+            (tester.widget<ClipRRect>(layerClip()).borderRadius as BorderRadius)
+                .topLeft
+                .x;
         final targetWidth = 44 + (720 - 44) * p;
         return local * (targetWidth / 720);
       }
@@ -1022,10 +1029,10 @@ void main() {
     testWidgets('中途的屏幕圆角是 11（局部半径已按 scale 放大）', (tester) async {
       playerExpansion.value = 0.5;
       await pumpLayer(tester);
-      final local = (tester.widget<ClipRRect>(layerClip()).borderRadius
-              as BorderRadius)
-          .topLeft
-          .x;
+      final local =
+          (tester.widget<ClipRRect>(layerClip()).borderRadius as BorderRadius)
+              .topLeft
+              .x;
       // p=0.5：目标边长 = (44 + 720) / 2 = 382，scale = 382/720
       final scale = (44 + (720 - 44) * 0.5) / 720;
       expect(local * scale, closeTo(11, 1e-6));
@@ -1113,6 +1120,9 @@ void main() {
   group('MiniPlayer 封面交接', () {
     testWidgets('形变层一接管就立即隐藏，不再淡出', (tester) async {
       final bus = PlayerCoverMorphBus.instance;
+      // 形变在生产环境已整体关闭（kCoverMorphEnabled）；本用例驱动真实逻辑。
+      PlayerCoverMorphBus.kCoverMorphEnabled = true;
+      addTearDown(() => PlayerCoverMorphBus.kCoverMorphEnabled = false);
       bus.reset();
       // 形变层没接管（端点缺失）→ MiniPlayer 封面必须保持显示，否则留洞
       expect(bus.layerWillDraw, isFalse);
@@ -1140,6 +1150,9 @@ void main() {
       // 淡入，两者相乘会让飞行中的专辑看起来被虚化。这里锁死「形变层子树里
       // 没有任何 Opacity」。
       final bus = PlayerCoverMorphBus.instance;
+      // 形变在生产环境已整体关闭（kCoverMorphEnabled）；本用例驱动真实逻辑。
+      PlayerCoverMorphBus.kCoverMorphEnabled = true;
+      addTearDown(() => PlayerCoverMorphBus.kCoverMorphEnabled = false);
       bus
         ..miniRect = const Rect.fromLTWH(16, 1900, 44, 44)
         ..publishFull(
@@ -1157,9 +1170,7 @@ void main() {
         );
       playerExpansion.value = 0.5;
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Stack(children: [PlayerCoverMorphLayer()]),
-        ),
+        const MaterialApp(home: Stack(children: [PlayerCoverMorphLayer()])),
       );
       expect(
         find.descendant(
@@ -1172,6 +1183,9 @@ void main() {
 
     test('publishMini 记录矩形；相同矩形不触发 revision（逐帧不空转）', () {
       final bus = PlayerCoverMorphBus.instance;
+      // 形变在生产环境已整体关闭（kCoverMorphEnabled）；本用例驱动真实逻辑。
+      PlayerCoverMorphBus.kCoverMorphEnabled = true;
+      addTearDown(() => PlayerCoverMorphBus.kCoverMorphEnabled = false);
       bus.reset();
       addTearDown(bus.reset);
       bus.publishMini(const Rect.fromLTWH(16, 1900, 44, 44));

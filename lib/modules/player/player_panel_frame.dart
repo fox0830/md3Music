@@ -303,7 +303,7 @@ class PlayerPanelFrame extends StatelessWidget {
                       paintKey: 'pagePaint',
                       child: Transform.translate(
                         offset: Offset(0, dy),
-                        child: Opacity(
+                        child: _PanelContentOpacity(
                           // 淡入只作用于**页面内容**。若把 Opacity 提到整个面板
                           // 外面，底色会被一起乘上透明度，背后照样透出来。
                           opacity: playerPanelOpacity(
@@ -311,7 +311,15 @@ class PlayerPanelFrame extends StatelessWidget {
                             origin: origin,
                             screenHeight: h,
                           ),
-                          child: child,
+                          // RepaintBoundary 是这段动画最关键的一笔：上面的
+                          // Transform 每帧改 offset → markNeedsPaint，没有边界的话
+                          // 整个 FullPlayer（4600+ 行，AM 版 5100+ 行）子树每帧
+                          // 重新录制 display list。加上之后 Transform/Opacity 只更新
+                          // layer，页面栅格直接复用。
+                          //
+                          // 边界放在 Opacity **里面**：放外面会把 Opacity 自己也隔在
+                          // 边界外，saveLayer 照样每帧重做。
+                          child: RepaintBoundary(child: child),
                         ),
                       ),
                     ),
@@ -323,5 +331,26 @@ class PlayerPanelFrame extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+/// 面板内容的淡入层：**不透明时直接不包 `Opacity`**。
+///
+/// `playerPanelOpacity` 只在行程前 ~21% 是分数值（见 [playerPanelOpacity]），
+/// 其余 ~79% 恒为 1。而 `Opacity` 只要存在就会触发一次全屏 `saveLayer` ——
+/// alpha=1 时那层 saveLayer 纯属白交。这里按值短路，端点逐像素等价。
+///
+/// 不用 `FadeTransition`：它要 `Animation<double>`，而本层的透明度是每帧由
+/// 几何（progress/origin/screenHeight）现算的，没有现成的 Animation 可用。
+class _PanelContentOpacity extends StatelessWidget {
+  const _PanelContentOpacity({required this.opacity, required this.child});
+
+  final double opacity;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (opacity >= 1.0) return child;
+    return Opacity(opacity: opacity, child: child);
   }
 }

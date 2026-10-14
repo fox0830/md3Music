@@ -44,12 +44,17 @@ const double kPlayerTapEntryOffsetRatio = 0.15;
 
 /// 展开（进入）时长。[DraggablePlayerRoute.createAnimationController] 与
 /// `transitionDuration` / `reverseTransitionDuration` 共用此处，避免两处数值漂移。
-/// 400ms：配合 [M3ExpressiveMotion.panelExpandEasing] 的长减速尾巴，
+/// 500ms：配合 [M3ExpressiveMotion.panelExpandEasing] 的长减速尾巴，
 /// 位移铺满全程（旧 300ms + expressive 实际前 150ms 就走完了）。
-const Duration kPlayerExpandDuration = Duration(milliseconds: 400);
+const Duration kPlayerExpandDuration = Duration(milliseconds: 500);
 
-/// 收起（退出）时长：展开的 65%（退出比进入快）。
-const Duration kPlayerCollapseDuration = Duration(milliseconds: 260);
+/// 收起（退出）时长：与展开**等长**。
+///
+/// 此前是展开的 65%，依据是「动效准则：退出应快于进入」。2026-10-14 用户
+/// 明确要求两端统一到 500ms，等长即是现在的预期行为——
+/// `draggable_player_route_test.dart` 里那条比值断言已随之改写。
+/// 若日后要恢复「退出更快」，把这里调小并同步那条测试即可。
+const Duration kPlayerCollapseDuration = Duration(milliseconds: 500);
 
 /// 播放页容器相对"归位"位置的本帧位移（**页面本地坐标**，dy 向下为正）。
 ///

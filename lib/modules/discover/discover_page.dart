@@ -1,4 +1,6 @@
 import '../../core/layout/page_layout.dart';
+import '../../core/layout/page_title_alignment.dart';
+import '../../widgets/settings_icon_button.dart';
 import '../../core/layout/responsive_layout.dart';
 import '../../core/remote/tv_scroll_region.dart';
 import '../../core/layout/adaptive_navigator.dart';
@@ -56,7 +58,8 @@ class _DiscoverPageState extends State<DiscoverPage>
 
   // 刷歌推荐区块的折叠状态，键名与每日推荐同一套约定（前缀 + 分区），
   // 这样两块共用 [_toggleCollapse] 的「prefs 存的是否折叠」语义。
-  static const String _kCollapsedHomeDiscover = 'discover_collapsed_home_discover';
+  static const String _kCollapsedHomeDiscover =
+      'discover_collapsed_home_discover';
 
   // 新歌速递沿用同一套键名约定。
   static const String _kCollapsedNewSong = 'discover_collapsed_new_song';
@@ -180,7 +183,8 @@ class _DiscoverPageState extends State<DiscoverPage>
     if (!mounted) return;
     setState(() {
       _isDailyExpanded = !(prefs.getBool(_kCollapsedDaily) ?? false);
-      _isHomeDiscoverExpanded = !(prefs.getBool(_kCollapsedHomeDiscover) ?? false);
+      _isHomeDiscoverExpanded =
+          !(prefs.getBool(_kCollapsedHomeDiscover) ?? false);
       _isNewSongExpanded = !(prefs.getBool(_kCollapsedNewSong) ?? false);
     });
   }
@@ -223,8 +227,7 @@ class _DiscoverPageState extends State<DiscoverPage>
       if (!mounted) return;
 
       // 检查是否真的加载到了数据（发现页只剩每日推荐 + 私人 FM）
-      if (kugou.recommendSongs.isNotEmpty ||
-          kugou.personalFmSongs.isNotEmpty) {
+      if (kugou.recommendSongs.isNotEmpty || kugou.personalFmSongs.isNotEmpty) {
         break; // 有数据了，退出重试
       }
 
@@ -301,12 +304,16 @@ class _DiscoverPageState extends State<DiscoverPage>
         kugou.getNewSongs(forceRefresh: hasExistingData),
       ];
       for (final f in reqs) {
-        unawaited(f.then((_) {
-          if (mounted) setState(() {});
-        }).catchError((Object _) {
-          // 单个分区失败不阻塞其它分区；错误由最终判定/分区自身兜底
-          if (mounted) setState(() {});
-        }));
+        unawaited(
+          f
+              .then((_) {
+                if (mounted) setState(() {});
+              })
+              .catchError((Object _) {
+                // 单个分区失败不阻塞其它分区；错误由最终判定/分区自身兜底
+                if (mounted) setState(() {});
+              }),
+        );
       }
       await Future.wait(reqs);
 
@@ -351,9 +358,7 @@ class _DiscoverPageState extends State<DiscoverPage>
             icon: Icons.search,
             // 页面形态（非搜索 tab）也要能出双栏：包 TwoPanePage 让详情入口有
             // 面板作用域可分派；窄屏由 TwoPanePage 内部退化成单栏整屏，手机不变。
-            onPressed: () => Navigator.of(
-              context,
-            ).push(
+            onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => const TwoPanePage(child: SearchPage()),
               ),
@@ -362,39 +367,40 @@ class _DiscoverPageState extends State<DiscoverPage>
           // 听歌识曲：依赖 Android 端麦克风采集 + RMS 分析链路，
           // 桌面端点了只会进到一个不工作的页面，故整块隐藏。
           if (supportsSongRecognition)
-            Padding(
-              padding: const EdgeInsets.only(right: _kActionTrailingGap),
-              child: _buildActionIcon(
-                icon: Icons.mic_outlined,
-                onPressed: () => Navigator.of(context, rootNavigator: true)
-                    .push(
-                      MaterialPageRoute(
-                        builder: (_) => const SongRecognitionPage(),
-                      ),
-                    ),
+            _buildActionIcon(
+              icon: Icons.mic_outlined,
+              onPressed: () => Navigator.of(context, rootNavigator: true).push(
+                MaterialPageRoute(builder: (_) => const SongRecognitionPage()),
               ),
+            ),
+          // 补边距跟着「最右那枚」走：设置按钮接手末位，识曲就不再需要它。
+          // 仅一级形态显示：被 push 成二级页时顶栏已有返回键，不挂设置入口
+          if (isPinnedNavPage(context, 'discover'))
+            const Padding(
+              padding: EdgeInsets.only(right: _kActionTrailingGap),
+              child: SettingsIconButton(compact: true),
             ),
         ],
       ),
       body: ContentWidth(
         child: Md3PullToRefresh(
-        onRefresh: _loadAllData,
-        // 渐进加载：任一分区数据就绪即退出整页转圈，先显示已获取的分区；
-        // 未就绪分区由各自 Selector 在数据到达时自动补出（空数据返回占位）。
-        child: _isLoading && !_hasAnySectionData
-            ? const Center(child: M3ELoadingIndicator())
-            : _error != null && !_hasAnySectionData
-            ? _buildError(colorScheme)
-            : CustomScrollView(
-                controller: _scrollController,
-                slivers: [
-                  _buildPersonalFmSection(),
-                  SliverLayoutBuilder(
+          onRefresh: _loadAllData,
+          // 渐进加载：任一分区数据就绪即退出整页转圈，先显示已获取的分区；
+          // 未就绪分区由各自 Selector 在数据到达时自动补出（空数据返回占位）。
+          child: _isLoading && !_hasAnySectionData
+              ? const Center(child: M3ELoadingIndicator())
+              : _error != null && !_hasAnySectionData
+              ? _buildError(colorScheme)
+              : CustomScrollView(
+                  controller: _scrollController,
+                  slivers: [
+                    _buildPersonalFmSection(),
+                    SliverLayoutBuilder(
                       builder: (context, constraints) {
                         final sections = [
                           _buildDailySection(colorScheme),
-                  _buildHomeDiscoverSection(colorScheme),
-                  _buildNewSongSection(colorScheme),
+                          _buildHomeDiscoverSection(colorScheme),
+                          _buildNewSongSection(colorScheme),
                         ];
                         // 歌曲仍按各分区的单列播放顺序呈现。
                         // 宽屏两两并排而不是三块全部并排：三块并排时每列只分到
@@ -409,18 +415,20 @@ class _DiscoverPageState extends State<DiscoverPage>
                         final rows = <Widget>[];
                         for (var i = 0; i < sections.length; i += 2) {
                           if (i + 1 < sections.length) {
-                            rows.add(SliverCrossAxisGroup(
-                              slivers: [
-                                SliverCrossAxisExpanded(
-                                  flex: 1,
-                                  sliver: sections[i],
-                                ),
-                                SliverCrossAxisExpanded(
-                                  flex: 1,
-                                  sliver: sections[i + 1],
-                                ),
-                              ],
-                            ));
+                            rows.add(
+                              SliverCrossAxisGroup(
+                                slivers: [
+                                  SliverCrossAxisExpanded(
+                                    flex: 1,
+                                    sliver: sections[i],
+                                  ),
+                                  SliverCrossAxisExpanded(
+                                    flex: 1,
+                                    sliver: sections[i + 1],
+                                  ),
+                                ],
+                              ),
+                            );
                           } else {
                             rows.add(sections[i]);
                           }
@@ -428,10 +436,10 @@ class _DiscoverPageState extends State<DiscoverPage>
                         return SliverMainAxisGroup(slivers: rows);
                       },
                     ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 80)),
-                ],
+                    const SliverToBoxAdapter(child: SizedBox(height: 80)),
+                  ],
                 ),
-              ),
+        ),
       ),
     );
   }
@@ -527,7 +535,8 @@ class _DiscoverPageState extends State<DiscoverPage>
         final note = noteRaw.clamp(0.0, 1.0);
         final noteScale = 0.4 + 0.6 * noteRaw.clamp(0.0, 1.2);
         final reveal = _greetingTextReveal.value;
-        final chars = '${_getGreeting()}，$_greetingNickname'.characters.toList();
+        final chars = '${_getGreeting()}，$_greetingNickname'.characters
+            .toList();
         // 音符浮现前整颗胶囊不可见，但仍占位一颗正圆的宽度，
         // 避免弹出瞬间标题向右跳。
         return Opacity(
@@ -638,7 +647,8 @@ class _DiscoverPageState extends State<DiscoverPage>
             ),
             trailing: IconButton(
               onPressed: () {
-                AdaptiveNav.openDetail(context,
+                AdaptiveNav.openDetail(
+                  context,
                   (_) => const _DailyRecommendDetailPage(),
                 );
               },
@@ -695,7 +705,8 @@ class _DiscoverPageState extends State<DiscoverPage>
             ),
             trailing: IconButton(
               onPressed: () {
-                AdaptiveNav.openDetail(context,
+                AdaptiveNav.openDetail(
+                  context,
                   (_) => const _HomeDiscoverDetailPage(),
                 );
               },
@@ -747,7 +758,8 @@ class _DiscoverPageState extends State<DiscoverPage>
             ),
             trailing: IconButton(
               onPressed: () {
-                AdaptiveNav.openDetail(context,
+                AdaptiveNav.openDetail(
+                  context,
                   (_) => const _NewSongDetailPage(),
                 );
               },
@@ -832,73 +844,77 @@ class _DailyRecommendDetailPageState extends State<_DailyRecommendDetailPage> {
       appBar: AppBar(title: const Text('每日推荐')),
       body: ContentWidth(
         child: SecondaryMiniPlayerHost(
-        // 与本页 AppBar 的 tabId 同源：宿主据此判断"标题左对齐 = 一级页面"，
-        // 一级页面既不随滚动收缩，也可按设置退回底部常驻条。
-        tabId: 'discover',
-        child: _isLoading
-          ? const Center(child: M3ELoadingIndicator())
-          : Selector<KugouProvider, List<KugouSongDetail>>(
-              selector: (_, kugou) => kugou.recommendSongs,
-              builder: (context, recommendSongs, _) {
-                final songs = recommendSongs.map((e) => e.toSong()).toList();
-                if (songs.isEmpty) return const Center(child: Text('暂无数据'));
-                return Column(
-                  children: [
-                    // 播放全部：把当日的 30 首当一张歌单从头连播。
-                    // 形态与专辑/歌单/听书详情页的主行动按钮一致
-                    // （FilledButton.icon + play_arrow）。
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.lg,
-                        AppSpacing.lg,
-                        AppSpacing.lg,
-                        AppSpacing.sm,
-                      ),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: () => context
-                              .read<PlayerProvider>()
-                              .playOnlinePlaylist(songs, 0),
-                          icon: const Icon(Icons.play_arrow),
-                          label: const Text('播放全部'),
+          // 与本页 AppBar 的 tabId 同源：宿主据此判断"标题左对齐 = 一级页面"，
+          // 一级页面既不随滚动收缩，也可按设置退回底部常驻条。
+          tabId: 'discover',
+          child: _isLoading
+              ? const Center(child: M3ELoadingIndicator())
+              : Selector<KugouProvider, List<KugouSongDetail>>(
+                  selector: (_, kugou) => kugou.recommendSongs,
+                  builder: (context, recommendSongs, _) {
+                    final songs = recommendSongs
+                        .map((e) => e.toSong())
+                        .toList();
+                    if (songs.isEmpty) return const Center(child: Text('暂无数据'));
+                    return Column(
+                      children: [
+                        // 播放全部：把当日的 30 首当一张歌单从头连播。
+                        // 形态与专辑/歌单/听书详情页的主行动按钮一致
+                        // （FilledButton.icon + play_arrow）。
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            AppSpacing.lg,
+                            AppSpacing.lg,
+                            AppSpacing.sm,
+                          ),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: () => context
+                                  .read<PlayerProvider>()
+                                  .playOnlinePlaylist(songs, 0),
+                              icon: const Icon(Icons.play_arrow),
+                              label: const Text('播放全部'),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    Expanded(
-                      child: TvScrollRegion(
-                        memoryKey: 'tv/discover-daily-detail',
-                        horizontalEdge: DpadEdgeBehavior.leave,
-                        child: ListView.builder(
-                        padding: EdgeInsets.fromLTRB(
-                          AppSpacing.lg,
-                          AppSpacing.sm,
-                          AppSpacing.lg,
-                          AppSpacing.lg + MediaQuery.paddingOf(context).bottom,
+                        Expanded(
+                          child: TvScrollRegion(
+                            memoryKey: 'tv/discover-daily-detail',
+                            horizontalEdge: DpadEdgeBehavior.leave,
+                            child: ListView.builder(
+                              padding: EdgeInsets.fromLTRB(
+                                AppSpacing.lg,
+                                AppSpacing.sm,
+                                AppSpacing.lg,
+                                AppSpacing.lg +
+                                    MediaQuery.paddingOf(context).bottom,
+                              ),
+                              itemCount: songs.length,
+                              itemBuilder: (context, index) {
+                                final song = songs[index];
+                                return SongListItem(
+                                  song: song,
+                                  // 详情页与歌单页一致：右侧给三点菜单；时长对
+                                  // 「挑几首听」没有参考价值，故用 favoriteAndMore。
+                                  trailingActions:
+                                      SongTrailingActions.favoriteAndMore,
+                                  onTap: () {
+                                    context
+                                        .read<PlayerProvider>()
+                                        .playOnlinePlaylist(songs, index);
+                                  },
+                                );
+                              },
+                            ),
+                          ),
                         ),
-                        itemCount: songs.length,
-                        itemBuilder: (context, index) {
-                          final song = songs[index];
-                          return SongListItem(
-                            song: song,
-                            // 详情页与歌单页一致：右侧给三点菜单；时长对
-                            // 「挑几首听」没有参考价值，故用 favoriteAndMore。
-                            trailingActions: SongTrailingActions.favoriteAndMore,
-                            onTap: () {
-                              context.read<PlayerProvider>().playOnlinePlaylist(
-                                songs,
-                                index);
-                            },
-                          );
-                        },
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+                      ],
+                    );
+                  },
                 ),
-            ),
+        ),
       ),
     );
   }
@@ -1063,10 +1079,7 @@ class _HomeDiscoverDetailPageState extends State<_HomeDiscoverDetailPage> {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 16),
         child: Center(
-          child: M3EContainedLoadingIndicator(
-            width: 48,
-            height: 48,
-          ),
+          child: M3EContainedLoadingIndicator(width: 48, height: 48),
         ),
       );
     }
@@ -1089,70 +1102,71 @@ class _HomeDiscoverDetailPageState extends State<_HomeDiscoverDetailPage> {
       appBar: AppBar(title: const Text('刷歌推荐')),
       body: ContentWidth(
         child: SecondaryMiniPlayerHost(
-        // 与本页 AppBar 的 tabId 同源：宿主据此判断"标题左对齐 = 一级页面"，
-        // 一级页面既不随滚动收缩，也可按设置退回底部常驻条。
-        tabId: 'discover',
-        child: _isLoading
-            ? const Center(child: M3ELoadingIndicator())
-            : Selector<KugouProvider, List<KugouSongDetail>>(
-                selector: (_, kugou) => kugou.homeDiscoverSongs,
-                builder: (context, details, _) {
-                  final songs = details.map((e) => e.toSong()).toList();
-                  if (songs.isEmpty) return const Center(child: Text('暂无数据'));
-                  return Column(
-                    children: [
-                      // 播放全部：与每日推荐详情页同形态（FilledButton.icon +
-                      // play_arrow），点它也走 _play(0)，同样会装上补货器。
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.lg,
-                          AppSpacing.lg,
-                          AppSpacing.lg,
-                          AppSpacing.sm,
-                        ),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: () => _play(0),
-                            icon: const Icon(Icons.play_arrow),
-                            label: const Text('播放全部'),
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: TvScrollRegion(
-                          memoryKey: 'tv/discover-home-detail',
-                          horizontalEdge: DpadEdgeBehavior.leave,
-                          child: ListView.builder(
-                          controller: _scrollController,
-                          padding: EdgeInsets.fromLTRB(
+          // 与本页 AppBar 的 tabId 同源：宿主据此判断"标题左对齐 = 一级页面"，
+          // 一级页面既不随滚动收缩，也可按设置退回底部常驻条。
+          tabId: 'discover',
+          child: _isLoading
+              ? const Center(child: M3ELoadingIndicator())
+              : Selector<KugouProvider, List<KugouSongDetail>>(
+                  selector: (_, kugou) => kugou.homeDiscoverSongs,
+                  builder: (context, details, _) {
+                    final songs = details.map((e) => e.toSong()).toList();
+                    if (songs.isEmpty) return const Center(child: Text('暂无数据'));
+                    return Column(
+                      children: [
+                        // 播放全部：与每日推荐详情页同形态（FilledButton.icon +
+                        // play_arrow），点它也走 _play(0)，同样会装上补货器。
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            AppSpacing.lg,
                             AppSpacing.lg,
                             AppSpacing.sm,
-                            AppSpacing.lg,
-                            AppSpacing.lg + MediaQuery.paddingOf(context).bottom,
                           ),
-                          // +1 是底部哨兵行，兼作翻页指示与"没有更多"的落点。
-                          itemCount: songs.length + 1,
-                          itemBuilder: (context, index) {
-                            if (index == songs.length) {
-                              return _buildListFooter(context);
-                            }
-                            return SongListItem(
-                              song: songs[index],
-                              // 与每日推荐详情页一致：收藏 + 三点，无时长。
-                              trailingActions:
-                                  SongTrailingActions.favoriteAndMore,
-                              onTap: () => _play(index),
-                            );
-                          },
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: () => _play(0),
+                              icon: const Icon(Icons.play_arrow),
+                              label: const Text('播放全部'),
+                            ),
+                          ),
                         ),
+                        Expanded(
+                          child: TvScrollRegion(
+                            memoryKey: 'tv/discover-home-detail',
+                            horizontalEdge: DpadEdgeBehavior.leave,
+                            child: ListView.builder(
+                              controller: _scrollController,
+                              padding: EdgeInsets.fromLTRB(
+                                AppSpacing.lg,
+                                AppSpacing.sm,
+                                AppSpacing.lg,
+                                AppSpacing.lg +
+                                    MediaQuery.paddingOf(context).bottom,
+                              ),
+                              // +1 是底部哨兵行，兼作翻页指示与"没有更多"的落点。
+                              itemCount: songs.length + 1,
+                              itemBuilder: (context, index) {
+                                if (index == songs.length) {
+                                  return _buildListFooter(context);
+                                }
+                                return SongListItem(
+                                  song: songs[index],
+                                  // 与每日推荐详情页一致：收藏 + 三点，无时长。
+                                  trailingActions:
+                                      SongTrailingActions.favoriteAndMore,
+                                  onTap: () => _play(index),
+                                );
+                              },
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
-                  );
-                },
+                      ],
+                    );
+                  },
                 ),
-              ),
+        ),
       ),
     );
   }
@@ -1281,10 +1295,7 @@ class _NewSongDetailPageState extends State<_NewSongDetailPage> {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 16),
         child: Center(
-          child: M3EContainedLoadingIndicator(
-            width: 48,
-            height: 48,
-          ),
+          child: M3EContainedLoadingIndicator(width: 48, height: 48),
         ),
       );
     }
@@ -1342,9 +1353,9 @@ class _NewSongDetailPageState extends State<_NewSongDetailPage> {
                             FilledButton.tonal(
                               onPressed: () async {
                                 setState(() => _isLoading = true);
-                                await context
-                                    .read<KugouProvider>()
-                                    .getNewSongs(forceRefresh: true);
+                                await context.read<KugouProvider>().getNewSongs(
+                                  forceRefresh: true,
+                                );
                                 if (mounted) setState(() => _isLoading = false);
                               },
                               child: const Text('重试'),
@@ -1480,7 +1491,9 @@ class _CollapsibleSection extends StatelessWidget {
                   onTap: onToggle,
                   borderRadius: AppRadius.smAll,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.xs,
+                    ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [

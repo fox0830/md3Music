@@ -7,7 +7,9 @@ import 'package:provider/provider.dart';
 
 import '../../core/build_flags.dart';
 import '../../providers/tab_config_provider.dart';
+import '../../core/layout/page_title_alignment.dart';
 import '../../widgets/scroll_aware_app_bar.dart';
+import '../../widgets/settings_icon_button.dart';
 import '../settings/home_tab_manager.dart';
 
 /// LaunchPad 导航页：以"导航网站"的形式列出所有可用 Tab（除"我的"和自身），
@@ -46,16 +48,20 @@ class LaunchPadPage extends StatefulWidget {
 class _LaunchPadPageState extends State<LaunchPadPage> {
   /// 长按启用总时长（与 Zen 模式长按退出保持一致）。
   static const Duration _enableDuration = Duration(milliseconds: 2000);
+
   /// 系统长按识别耗时（GestureDetector onLongPressStart 触发点），
   /// 与"0.5s 后淡入提示"一致；剩余 [_enableDuration] 减去该时长。
   static const Duration _longPressDelay = Duration(milliseconds: 500);
+
   /// 提示层淡入动画时长。
   static const Duration _hintFade = Duration(milliseconds: 200);
 
   /// 正在长按启用的 tab id；null 表示无长按进行中。
   String? _enablingTabId;
+
   /// 长按已识别（提示层淡入中/已显示）。
   bool _showHint = false;
+
   /// 长按识别后到启用前的剩余计时。
   Timer? _enableTimer;
 
@@ -109,8 +115,9 @@ class _LaunchPadPageState extends State<LaunchPadPage> {
         .where((t) => tabConfig.hiddenTabs.contains(t.id))
         .toList();
     // 手机竖屏 3 列，横屏（及宽屏）4 列
-    final columns =
-        MediaQuery.orientationOf(context) == Orientation.landscape ? 4 : 3;
+    final columns = MediaQuery.orientationOf(context) == Orientation.landscape
+        ? 4
+        : 3;
 
     return Scaffold(
       appBar: ScrollAwareAppBar(
@@ -123,6 +130,8 @@ class _LaunchPadPageState extends State<LaunchPadPage> {
             tooltip: '编辑固定项',
             onPressed: _showEditSheet,
           ),
+          // 仅一级形态显示：被 push 成二级页时顶栏已有返回键，不挂设置入口
+          if (isPinnedNavPage(context, 'launchpad')) const SettingsIconButton(),
         ],
       ),
       body: CustomScrollView(
@@ -173,9 +182,9 @@ class _LaunchPadPageState extends State<LaunchPadPage> {
             const SizedBox(width: 8),
             Text(
               '$count',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: cs.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
             ),
             const SizedBox(width: 12),
             Expanded(child: Divider(color: cs.outlineVariant, height: 1)),
@@ -213,9 +222,7 @@ class _LaunchPadPageState extends State<LaunchPadPage> {
             onTap: hidden
                 ? () => widget.onTabOpened(tab.id)
                 : () => widget.onTabSelected(tab.id),
-            onLongPressStart: hidden
-                ? () => _onLongPressStart(tab.id)
-                : null,
+            onLongPressStart: hidden ? () => _onLongPressStart(tab.id) : null,
             onLongPressEnd: hidden ? _onLongPressEnd : null,
           );
         }, childCount: items.length),
@@ -237,10 +244,7 @@ class _LaunchPadEditPanel extends StatelessWidget {
     return SafeArea(
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height * 0.85,
-        child: const HomeTabManagerList(
-          title: 'LaunchPad 管理',
-          embedded: false,
-        ),
+        child: const HomeTabManagerList(title: 'LaunchPad 管理', embedded: false),
       ),
     );
   }
@@ -255,8 +259,10 @@ class _LaunchPadCard extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool hidden;
+
   /// 是否正在长按启用（用于构建提示层）。
   final bool enabling;
+
   /// 长按已识别，提示层淡入。
   final bool showHint;
   final VoidCallback onTap;

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../core/build_flags.dart';
 import '../../core/theme/app_dimens.dart';
 import '../../core/layout/page_title_alignment.dart';
+import '../../widgets/settings_icon_button.dart';
 import '../../core/layout/tv_fab_focus_bridge.dart';
 import '../../core/utils/app_text_context_menu.dart';
 import '../../core/utils/app_toast.dart';
@@ -39,8 +40,9 @@ class _LibraryPageState extends State<LibraryPage>
   /// tv: 扫描弹层首项（扫描音乐）的焦点节点。显式持有一份，弹层打开后由
   /// [_tvEnsureSheetFocus] 主动请求焦点——`autofocus` 在 m3e 弹层这种延迟挂载
   /// 的路由里不可靠（2026-10-05 真机实测：焦点落到末行开关上）。
-  final FocusNode _tvScanMenuFirstNode =
-      FocusNode(debugLabel: 'scan_menu_rescan');
+  final FocusNode _tvScanMenuFirstNode = FocusNode(
+    debugLabel: 'scan_menu_rescan',
+  );
 
   /// [_tvEnsureSheetFocus] 的自锁标记，保证只请求一次焦点。
   bool _tvScanMenuFocusRequested = false;
@@ -105,6 +107,10 @@ class _LibraryPageState extends State<LibraryPage>
           '本地音乐',
           style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
         ),
+        actions: [
+          // 仅一级形态显示：被 push 成二级页时顶栏已有返回键，不挂设置入口
+          if (isPinnedNavPage(context, 'library')) const SettingsIconButton(),
+        ],
         bottom: hasMusic || isScanning
             ? PreferredSize(
                 preferredSize: const Size.fromHeight(108),
@@ -359,68 +365,70 @@ class _LibraryPageState extends State<LibraryPage>
                   return Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                  Padding(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: Text(
-                      '扫描本地音乐',
-                      style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
+                      Padding(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: Text(
+                          '扫描本地音乐',
+                          style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  // tv: 首项持有显式焦点节点，由 [_tvEnsureSheetFocus] 在弹层
-                  // 挂载后主动请求（`autofocus` 在 m3e 弹层里不可靠）
-                  _tvSheetRow(
-                    rescan,
-                    debugLabel: 'scan_menu_rescan',
-                    ListTile(
-                      leading: const Icon(Icons.refresh),
-                      title: const Text('扫描音乐'),
-                      subtitle: const Text('扫描默认目录和已添加的文件夹'),
-                      onTap: rescan,
-                    ),
-                    focusNode: _tvScanMenuFirstNode,
-                  ),
-                  // 打开扫描文件夹管理面板（列出已添加项 + 移除）。
-                  // 此前直接调文件夹选择器，加完就看不到有哪些、也没法移除，
-                  // 用户以为没持久化（实际已存盘，见 LocalMusicRepository.saveFolders）。
-                  _tvSheetRow(
-                    manageScanFolders,
-                    debugLabel: 'scan_menu_add_folder',
-                    ListTile(
-                      leading: const Icon(Icons.create_new_folder_outlined),
-                      title: const Text('添加扫描文件夹'),
-                      subtitle: Text(
-                          '选择额外的文件夹进行扫描'
-                          '${provider.scanFolders.isEmpty ? '' : '（已添加 ${provider.scanFolders.length} 个）'}'),
-                      onTap: manageScanFolders,
-                    ),
-                  ),
-                  _tvSheetRow(
-                    manageExcluded,
-                    debugLabel: 'scan_menu_excluded',
-                    ListTile(
-                      leading: const Icon(Icons.folder_off_outlined),
-                      title: const Text('排除文件夹'),
-                      subtitle: Text(
-                          '已排除 ${provider.excludedFolders.length} 个文件夹'),
-                      onTap: manageExcluded,
-                    ),
-                  ),
-                  // tv: 开关行同样要单停点；OK 键翻转取值
-                  _tvSheetRow(
-                    () => library
-                        .setFilterShortAudio(!library.filterShortAudio),
-                    debugLabel: 'scan_menu_filter_short',
-                    SwitchListTile(
-                      title: const Text('过滤不超过 60 秒的音频'),
-                      subtitle: const Text(
-                          '默认关闭，开启后本地音乐列表只显示时长大于 60 秒的音频'),
-                      value: library.filterShortAudio,
-                      onChanged: library.setFilterShortAudio,
-                    ),
-                  ),
-                  const Gap(AppSpacing.sm),
+                      // tv: 首项持有显式焦点节点，由 [_tvEnsureSheetFocus] 在弹层
+                      // 挂载后主动请求（`autofocus` 在 m3e 弹层里不可靠）
+                      _tvSheetRow(
+                        rescan,
+                        debugLabel: 'scan_menu_rescan',
+                        ListTile(
+                          leading: const Icon(Icons.refresh),
+                          title: const Text('扫描音乐'),
+                          subtitle: const Text('扫描默认目录和已添加的文件夹'),
+                          onTap: rescan,
+                        ),
+                        focusNode: _tvScanMenuFirstNode,
+                      ),
+                      // 打开扫描文件夹管理面板（列出已添加项 + 移除）。
+                      // 此前直接调文件夹选择器，加完就看不到有哪些、也没法移除，
+                      // 用户以为没持久化（实际已存盘，见 LocalMusicRepository.saveFolders）。
+                      _tvSheetRow(
+                        manageScanFolders,
+                        debugLabel: 'scan_menu_add_folder',
+                        ListTile(
+                          leading: const Icon(Icons.create_new_folder_outlined),
+                          title: const Text('添加扫描文件夹'),
+                          subtitle: Text(
+                            '选择额外的文件夹进行扫描'
+                            '${provider.scanFolders.isEmpty ? '' : '（已添加 ${provider.scanFolders.length} 个）'}',
+                          ),
+                          onTap: manageScanFolders,
+                        ),
+                      ),
+                      _tvSheetRow(
+                        manageExcluded,
+                        debugLabel: 'scan_menu_excluded',
+                        ListTile(
+                          leading: const Icon(Icons.folder_off_outlined),
+                          title: const Text('排除文件夹'),
+                          subtitle: Text(
+                            '已排除 ${provider.excludedFolders.length} 个文件夹',
+                          ),
+                          onTap: manageExcluded,
+                        ),
+                      ),
+                      // tv: 开关行同样要单停点；OK 键翻转取值
+                      _tvSheetRow(
+                        () => library.setFilterShortAudio(
+                          !library.filterShortAudio,
+                        ),
+                        debugLabel: 'scan_menu_filter_short',
+                        SwitchListTile(
+                          title: const Text('过滤不超过 60 秒的音频'),
+                          subtitle: const Text('默认关闭，开启后本地音乐列表只显示时长大于 60 秒的音频'),
+                          value: library.filterShortAudio,
+                          onChanged: library.setFilterShortAudio,
+                        ),
+                      ),
+                      const Gap(AppSpacing.sm),
                     ],
                   );
                 },

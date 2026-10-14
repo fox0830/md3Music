@@ -42,7 +42,8 @@ double coverMorphT(double expansion) => expansion.clamp(0.0, 1.0);
 /// 局部半径 × scale。不除的话起点处只有 `6 × (44/336) ≈ 0.8dp`，而 MiniPlayer
 /// 封面是 6dp —— 交接瞬间圆角会「突变」成近直角。
 double coverMorphLocalRadius(double t, double scale) {
-  final onScreen = kCoverMorphMiniRadius +
+  final onScreen =
+      kCoverMorphMiniRadius +
       (kCoverMorphFullRadius - kCoverMorphMiniRadius) * t.clamp(0.0, 1.0);
   return scale <= 0 ? onScreen : onScreen / scale;
 }
@@ -152,8 +153,7 @@ Rect coverMorphSettledRect({
   required Rect measured,
   required Offset pageOffset,
   required double pageToScreen,
-}) =>
-    measured.shift(-pageOffset * pageToScreen);
+}) => measured.shift(-pageOffset * pageToScreen);
 
 /// 封面形变的全局登记簿（多写一读）。
 ///
@@ -232,6 +232,7 @@ class PlayerCoverMorphBus {
 
   /// 迷你条「标题 + 歌手」文字块在屏幕上的矩形。
   Rect? miniTextRect;
+
   /// 播放页标题块「页面归位」后的屏幕矩形。
   Rect? settledTextRect;
 
@@ -255,6 +256,25 @@ class PlayerCoverMorphBus {
   /// 「形变层绘制条件」逐字一致，不会出现某一侧被判据差异漏掉而留出空洞。
   bool textEligible = false;
 
+  /// 封面 / 歌名歌手「共享元素形变」的总开关（false = 关闭）。
+  ///
+  /// 关闭后两端都退回各自的常规渲染：
+  /// - 播放页的大封面与歌名歌手**跟着整页一起平移滑出**，不再单独起飞；
+  /// - 迷你条的小封面与歌名歌手**和右侧三颗按钮同一处理** —— 不让位、
+  ///   不单独做动画，随整条迷你条的 `Opacity(1 - expansion)` 一起显隐。
+  ///
+  /// 复用 [reducedMotion] 那条「整体关闭」路径（判据同源，绘制侧与两端让位侧
+  /// 同时失效，不会留出「谁都不画 → 封面凭空消失」的空洞），所以这里只需一个
+  /// 短路，不必动任何几何或动画代码。
+  ///
+  /// 与 [reducedMotion] 分开而不是直接置它为 true：那个表示「系统开了减弱动效」，
+  /// 语义不同，混用会让日后排查时分不清是用户系统设置还是我们主动关的。
+  ///
+  /// 做成**可写**而非 `const`：形变的整套机制与它的测试护栏都原样保留，
+  /// 相关用例在 setUp 里置 true 继续驱动真实逻辑。要恢复这个特性，
+  /// 把默认值改回 true 即可，无需回滚任何代码。
+  static bool kCoverMorphEnabled = false;
+
   /// 系统「减弱动态效果」是否开启。
   ///
   /// 由 PlayerCoverMorphLayer 每次 build 时从 `MediaQuery` 刷新。置 true 时形变
@@ -264,6 +284,7 @@ class PlayerCoverMorphBus {
 
   /// 形变层本帧是否画文字块。
   bool get textWillDraw {
+    if (!kCoverMorphEnabled) return false;
     if (reducedMotion) return false;
     if (!playerCoverVisible.value) return false;
     if (!textEligible) return false;
@@ -290,6 +311,7 @@ class PlayerCoverMorphBus {
   /// 构建，判断就永远不会被求值、`eligible` 会停在过期值。本判据在**绘制那一刻**
   /// 由常驻的形变层 / MiniPlayer 读取，才真正拦得住。
   bool willDraw({required bool eligible}) {
+    if (!kCoverMorphEnabled) return false;
     if (reducedMotion) return false;
     if (!playerCoverVisible.value) return false;
     if (!eligible) return false;
@@ -393,7 +415,8 @@ class PlayerCoverMorphBus {
     required TextStyle? titleStyle,
     required TextStyle? subtitleStyle,
   }) {
-    final changed = miniTextRect != rect ||
+    final changed =
+        miniTextRect != rect ||
         miniTitleText != title ||
         miniSubtitleText != subtitle ||
         miniTitleStyle != titleStyle ||
@@ -429,7 +452,8 @@ class PlayerCoverMorphBus {
       pageOffset: pageOffset,
       pageToScreen: scale,
     );
-    final changed = settledTextRect != settled ||
+    final changed =
+        settledTextRect != settled ||
         fullTitleText != title ||
         fullSubtitleText != subtitle ||
         fullTitleStyle != titleStyle ||
@@ -1097,10 +1121,7 @@ class _CoverMorphPhaseProbeBox extends SingleChildRenderObjectWidget {
       _RenderCoverMorphPhaseProbe(layoutKey, paintKey);
 
   @override
-  void updateRenderObject(
-    BuildContext context,
-    RenderObject renderObject,
-  ) {
+  void updateRenderObject(BuildContext context, RenderObject renderObject) {
     // 形参写 RenderObject 再转型（与 CoverGeometryProbe 同一写法）：直接写私有
     // 类型会撞 library_private_types_in_public_api。
     (renderObject as _RenderCoverMorphPhaseProbe)
@@ -1120,15 +1141,11 @@ class _RenderCoverMorphPhaseProbe extends RenderProxyBox {
   set paintKey(String value) => _paintKey = value;
 
   @override
-  void performLayout() =>
-      coverMorphHot<void>(_layoutKey, super.performLayout);
+  void performLayout() => coverMorphHot<void>(_layoutKey, super.performLayout);
 
   @override
   void paint(PaintingContext context, Offset offset) =>
-      coverMorphHot<void>(
-        _paintKey,
-        () => super.paint(context, offset),
-      );
+      coverMorphHot<void>(_paintKey, () => super.paint(context, offset));
 }
 
 /// 最坏帧在日志里保留几个：够定位又是哪条线程，且不至于把一行拉太长。

@@ -21,6 +21,7 @@ import 'core/layout/responsive_shell.dart';
 import 'core/layout/ui_density.dart';
 import 'core/remote/tv_exit_confirm_dialog.dart';
 import 'core/remote/tv_focus_highlight.dart';
+import 'core/services/desktop_lyric_service.dart';
 import 'core/services/external_media_intent_service.dart';
 import 'core/services/fm_widget_sync.dart';
 import 'core/services/lyricon_provider_service.dart';
@@ -622,7 +623,7 @@ class _AppViewState extends State<_AppView> {
     final predictiveBack = kPredictiveBackEnabled.value;
 
     return MaterialApp(
-      title: 'MD3Music',
+      title: '酷狗',
       debugShowCheckedModeBanner: false,
       // 同时传 theme 和 darkTheme，并根据 ThemeProvider.effectiveSeedColor
       // 动态生成（支持「莫奈色」开关切换系统主色）。
@@ -1704,6 +1705,12 @@ class _MainLayoutState extends State<_MainLayout>
     unawaited(_loadTopBarPillCollapse());
     // 页签圆点位置开关（默认关 = 底部页签条）：启动时载入持久化值（播放页自己订阅）。
     unawaited(_loadTopBarTabDots());
+    // 悬浮歌词开关记忆：上次开着就自动重开。
+    // 必须等首帧——DesktopLyricService 绑定 Provider 走 appNavigatorKey.currentContext，
+    // initState 阶段 Navigator 尚未挂载，提前调用会因「播放器未就绪」静默失败。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(DesktopLyricService.instance.restoreEnabledFromPrefs());
+    });
     // 监听词幕连接失败（原生侧多次重试后 connect_failed）→ 弹窗提示
     LyriconProviderService.instance.addListener(_onLyriconStateChanged);
     // 冷启动前若已连接失败（如后台唤醒时），进入主页后立即补弹一次

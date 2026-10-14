@@ -1,5 +1,11 @@
+import 'dart:async';
+
 import 'package:dpad/dpad.dart';
-import 'package:flutter/material.dart';
+// 必须用 material_ui 而非 flutter/material：全 App 的 Scaffold/Material 都来自
+// material_ui（它是 Flutter material 库的独立 fork，Material 是另一个类）。
+// 混用会让这里的 InkWell/Slider 在 debugCheckHasMaterial 时找不到 Material 祖先，
+// 整个面板抛 "No Material widget found"。
+import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../../core/build_flags.dart';
@@ -7,6 +13,8 @@ import '../../core/remote/remote_slider.dart';
 import '../../core/services/desktop_lyric_service.dart';
 import '../../core/theme/app_dimens.dart';
 import '../../core/utils/app_haptics.dart';
+// 复用底栏那颗桌面歌词按钮的切换逻辑，保证两处入口行为一致（含通知栏同步）
+import '../player/bottom_bar_morph_overlay.dart';
 import 'settings_group_heading.dart';
 
 /// 桌面歌词设置滑块的触感配置（**档位式**而非连续式）。
@@ -51,8 +59,7 @@ class DesktopLyricSettingsPanel extends StatefulWidget {
       _DesktopLyricSettingsPanelState();
 }
 
-class _DesktopLyricSettingsPanelState
-    extends State<DesktopLyricSettingsPanel> {
+class _DesktopLyricSettingsPanelState extends State<DesktopLyricSettingsPanel> {
   final DesktopLyricService _svc = DesktopLyricService.instance;
 
   /// 「自调颜色」是否展开 = 当前配色模式是不是「自调颜色」。
@@ -67,6 +74,7 @@ class _DesktopLyricSettingsPanelState
   /// 这里重新 null 让 UI 回到读服务字段。
   double? _draggingFontSize;
   double? _draggingOpacity;
+  double? _draggingWidthRatio;
   double? _draggingSungHue;
   double? _draggingUnsungHue;
 
@@ -98,6 +106,7 @@ class _DesktopLyricSettingsPanelState
     final child = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _buildEnableSwitch(),
         _buildPreview(),
         _buildColorSection(),
         _buildTypeSection(),
@@ -114,120 +123,93 @@ class _DesktopLyricSettingsPanelState
   }
 
   // ==========================================================================
+  /// 桌面歌词总开关。
+  ///
+  /// 直接复用底栏那颗按钮的 [toggleDesktopLyricFromBar]，而不是自己调
+  /// `DesktopLyricService.toggle()`：后者只翻服务状态，会漏掉通知栏「桌面歌词」
+  /// 按钮的同步，两处入口的行为就会不一致。
+  Widget _buildEnableSwitch() {
+    return SwitchListTile(
+      title: const Text('桌面歌词'),
+      subtitle: const Text('在其他应用之上显示悬浮歌词'),
+      value: _svc.enabled,
+      onChanged: (_) {
+        AppHaptics.lightImpact(HapticCategory.control);
+        // 开关状态由 _svc 的 listener 回流刷新（见 initState），此处不 setState
+        unawaited(toggleDesktopLyricFromBar(context));
+      },
+    );
+  }
+
+  // ==========================================================================
   // 预览：整个面板里唯一能被复述出来的东西
   // ==========================================================================
 
-  /// 所见即所得的预览。
+  /// 所见即所得的预览：**只画悬浮窗本体**，一比一对齐原生。
   ///
-  /// 悬浮窗可能压在任何界面上，这里铺一层"假的下层内容"（渐变 + 两条卡片
-  /// 骨架），上面才是悬浮窗本体 —— 不这么做，调不透明度等于没得调。
+  /// 原先在底下铺过一层"假装的下层界面"（渐变 + 灰色卡片骨架），本意是给
+  /// 不透明度一个参照物。但它带来两个问题：那条灰色长条看着像 UI 的一部分
+  /// 而非背景示意；且不透明度拉到 0 时下层仍在，背景看起来并没有消失。
+  /// 现在只保留唯一一层底色，严格等于原生 rootView 的那一层。
+  ///
+  /// 对齐原生 [FloatingLyricService] 的 rootView：
+  ///   - 纯黑底，alpha = opacity%（原生 `(bgAlpha shl 24) or 0x000000`）
+  ///   - 圆角 16dp（原生 `cornerRadius = dp(16)`）
+  ///   - 内边距 20/6（原生 `setPadding(dp(20), dp(6), dp(20), dp(6))`）
+  ///   - 无阴影、无描边（原生那层 GradientDrawable 两者都没有；旧预览的
+  ///     boxShadow 正是"不透明度归零背景仍在"的元凶之一）
   Widget _buildPreview() {
     final fontSize = _svc.fontSize;
     final alpha = _svc.opacity / 100.0;
+    // 不设固定高度：卡片按内容自然撑高，和真机悬浮窗一样「多高就多高」。
+    // 旧版那个 SizedBox(height: 128) 是 Stack + Positioned.fill 布局的遗留
+    // （那种结构自身不产生尺寸，必须显式给高），改成单层 Container 后它只会
+    // 在卡片上下各留出几十 dp 的空白，看着像卡片离开关和分割线很远。
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-      // Stack 里两个 child 都是 Positioned.fill，本身不产生尺寸 —— 必须显式
-      // 给出高度，否则在 Sliver/ListView 的无界主轴约束下会 RenderBox 报错。
-      child: SizedBox(
-        height: 128,
-        width: double.infinity,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(AppSpacing.md),
-          child: Stack(
-            children: [
-            // 假装的下层界面
-            Positioned.fill(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      _cs.primaryContainer.withValues(alpha: 0.55),
-                      _cs.surface,
-                      _cs.secondaryContainer.withValues(alpha: 0.45),
-                    ],
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      // 卡片宽度跟随「卡片宽度」设置：原生是占**屏宽**的百分比，这里只能按
+      // 预览区可用宽度取同一比例——两者基数不同（预览还被左右各扣了 16），
+      // 所以比例对、绝对值不对；这是预览唯一一处做不到 1:1 的地方。
+      child: FractionallySizedBox(
+        alignment: Alignment.center,
+        widthFactor: _svc.widthRatio / 100.0,
+        child: Container(
+          // 水平 20 对齐原生 rootView 的 `setPadding(dp(20), …, dp(20), …)`。
+          // 少了这层，预览里歌词可用的横向空间会比真机悬浮窗宽 40dp ——
+          // 32sp 时预览刚好挤下、真机却已经要换行/省略，预览就会**美化**实际
+          // 效果（2026-10-10 在真机上把字号拉满后对比确认）。
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+          decoration: BoxDecoration(
+            // 纯黑而非 _cs.scrim：原生写死 0x000000，用主题色会在深浅主题下漂移
+            color: Colors.black.withValues(alpha: alpha),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          // 宽度必须 tight，否则 Text 拿到无界宽度、渐变 shader 无从建立
+          child: SizedBox(
+            width: double.infinity,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildPreviewLine(
+                  '夜色像潮水漫过这条街',
+                  progress: 0.62,
+                  fontSize: fontSize,
+                ),
+                if (_svc.doubleLine) ...[
+                  const SizedBox(height: 2),
+                  _buildPreviewLine(
+                    '我们把没说完的话留给明天',
+                    progress: 0,
+                    fontSize: fontSize,
                   ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 84,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: _cs.onSurface.withValues(alpha: 0.45),
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: _cs.onSurface.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                ],
+              ],
             ),
-            // 悬浮窗本体：圆角 16 / 黑底 alpha = opacity / padding 20-12
-            Positioned.fill(
-              child: Container(
-                alignment: Alignment.center,
-                // 水平 20 对齐原生 rootView 的 `setPadding(dp(20), …, dp(20), …)`。
-                // 少了这层，预览里歌词可用的横向空间会比真机悬浮窗宽 40dp ——
-                // 32sp 时预览刚好挤下、真机却已经要换行/省略，预览就会**美化**实际
-                // 效果（2026-10-10 在真机上把字号拉满后对比确认）。
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                decoration: BoxDecoration(
-                  color: _cs.scrim.withValues(alpha: alpha),
-                  borderRadius: BorderRadius.circular(AppSpacing.md),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _cs.shadow.withValues(alpha: 0.35),
-                      blurRadius: 16,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                // 只撑满宽度、不撑满高度：撑满高度会让外层 Container 的
-                // alignment: center 失效，歌词被顶到预览卡上沿（2026-10-10 实测）。
-                // 宽度必须 tight，否则 Text 拿到无界宽度、渐变 shader 无从建立。
-                child: SizedBox(
-                  width: double.infinity,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildPreviewLine(
-                        '夜色像潮水漫过这条街',
-                        progress: 0.62,
-                        fontSize: fontSize,
-                        emphasized: true,
-                      ),
-                      if (_svc.doubleLine) ...[
-                        const SizedBox(height: 2),
-                        _buildPreviewLine(
-                          '我们把没说完的话留给明天',
-                          progress: 0,
-                          fontSize: fontSize,
-                          emphasized: false,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   /// 一句预览歌词：底层是未唱色，上层按 [progress] 裁切出已经唱过的渐变部分。
   ///
@@ -237,19 +219,35 @@ class _DesktopLyricSettingsPanelState
     String text, {
     required double progress,
     required double fontSize,
-    required bool emphasized,
   }) {
-    // 只画文字本身：已唱渐变 / 未唱色，不加描边、阴影、底板 —— 与原生
-    // GradientTextView 保持一致（2026-10-10 用户要求去掉一切多余样式）。
+    // 与原生 GradientTextView 对齐：黑色描边打底 + 彩色填充，两行都不加粗。
+    // 字重不再分主次——原生两行共用默认字体（lyricText1/2 都没设 typeface）。
     final base = TextStyle(
       fontSize: fontSize,
       height: 1.34,
-      fontWeight: emphasized ? FontWeight.w700 : FontWeight.w400,
+      fontWeight: FontWeight.w400,
     );
+    // 比例与原生 kStrokeWidthRatio 一致；两边都是「以轮廓为中心向外扩一半」的
+    // STROKE 语义，所以同一个数值在两侧观感相同。
+    final strokeWidth = fontSize * 0.08;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints cons) {
         return Stack(
           children: [
+            // 描边打底：必须在两层填充之下，否则会盖住颜色
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: base.copyWith(
+                foreground: Paint()
+                  ..style = PaintingStyle.stroke
+                  ..strokeWidth = strokeWidth
+                  ..strokeJoin = StrokeJoin.round
+                  ..color = Colors.black,
+              ),
+            ),
             Text(
               text,
               textAlign: TextAlign.center,
@@ -266,10 +264,9 @@ class _DesktopLyricSettingsPanelState
                 overflow: TextOverflow.ellipsis,
                 style: base.copyWith(
                   foreground: Paint()
-                    ..shader = LinearGradient(colors: [_g1, _g2])
-                        .createShader(
-                          Rect.fromLTWH(0, 0, cons.maxWidth, fontSize * 1.34),
-                        ),
+                    ..shader = LinearGradient(colors: [_g1, _g2]).createShader(
+                      Rect.fromLTWH(0, 0, cons.maxWidth, fontSize * 1.34),
+                    ),
                 ),
               ),
             ),
@@ -294,10 +291,9 @@ class _DesktopLyricSettingsPanelState
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              ...DesktopLyricService.gradientPresets
-                  .asMap()
-                  .entries
-                  .map((e) => _buildPresetSwatch(e.key, e.value.$1, e.value.$2)),
+              ...DesktopLyricService.gradientPresets.asMap().entries.map(
+                (e) => _buildPresetSwatch(e.key, e.value.$1, e.value.$2),
+              ),
               // 第 5 个：「自定义」。画的是自定义槽位当前的颜色，随自调实时更新；
               // 预设是常量，自调的产物只进这个槽位。
               _buildCustomSwatch(),
@@ -332,7 +328,8 @@ class _DesktopLyricSettingsPanelState
                     children: [
                       _buildHueRow(
                         label: '已唱',
-                        value: _draggingSungHue ??
+                        value:
+                            _draggingSungHue ??
                             _hueOf(_svc.gradientStart).toDouble(),
                         color: _colorFromHue(
                           _draggingSungHue ??
@@ -355,7 +352,8 @@ class _DesktopLyricSettingsPanelState
                       const SizedBox(height: AppSpacing.xs),
                       _buildHueRow(
                         label: '未唱',
-                        value: _draggingUnsungHue ??
+                        value:
+                            _draggingUnsungHue ??
                             _hueOf(_svc.unplayedColor).toDouble(),
                         color: _colorFromHue(
                           _draggingUnsungHue ??
@@ -380,9 +378,9 @@ class _DesktopLyricSettingsPanelState
                         '拖动"已唱"会把渐变两端合并为同一颜色，'
                         '恢复渐变请重新选择上方预设。',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: _cs.onSurfaceVariant,
-                              height: 1.5,
-                            ),
+                          color: _cs.onSurfaceVariant,
+                          height: 1.5,
+                        ),
                       ),
                     ],
                   ),
@@ -400,7 +398,8 @@ class _DesktopLyricSettingsPanelState
       end: end,
       // 选中态跟配色模式走（模式是唯一真相），与原生面板同一规则：
       // 预设配色 → 按真实颜色值匹配；自调颜色 → 只亮「自定义」。
-      selected: _svc.colorMode == DesktopLyricService.kColorModePreset &&
+      selected:
+          _svc.colorMode == DesktopLyricService.kColorModePreset &&
           _svc.matchedPresetIndex == index,
       onTap: () => _svc.selectGradientPreset(index),
     );
@@ -412,7 +411,8 @@ class _DesktopLyricSettingsPanelState
       index: DesktopLyricService.gradientPresets.length,
       start: _svc.customStart,
       end: _svc.customEnd,
-      selected: _svc.colorMode == DesktopLyricService.kColorModeCustom &&
+      selected:
+          _svc.colorMode == DesktopLyricService.kColorModeCustom &&
           _svc.isCustomGradient,
       onTap: () => _svc.selectCustomGradient(),
     );
@@ -437,9 +437,7 @@ class _DesktopLyricSettingsPanelState
           colors: [c1, c2],
         ),
         borderRadius: BorderRadius.circular(AppSpacing.sm),
-        border: Border.all(
-          color: _cs.outline.withValues(alpha: 0.4),
-        ),
+        border: Border.all(color: _cs.outline.withValues(alpha: 0.4)),
         boxShadow: selected
             ? [
                 BoxShadow(
@@ -456,10 +454,7 @@ class _DesktopLyricSettingsPanelState
       curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppSpacing.sm + 2),
-        border: Border.all(
-          width: 2,
-          color: selected ? c1 : Colors.transparent,
-        ),
+        border: Border.all(width: 2, color: selected ? c1 : Colors.transparent),
       ),
       padding: const EdgeInsets.all(2),
       child: swatch,
@@ -506,9 +501,9 @@ class _DesktopLyricSettingsPanelState
           const SizedBox(width: AppSpacing.xs),
           Text(
             label,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _cs.onSurface,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: _cs.onSurface),
           ),
           const Spacer(),
           Container(
@@ -520,9 +515,9 @@ class _DesktopLyricSettingsPanelState
             child: Text(
               hint,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: accent,
-                    fontWeight: FontWeight.w600,
-                  ),
+                color: accent,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -546,10 +541,9 @@ class _DesktopLyricSettingsPanelState
     final sliderChildren = <Widget>[
       Text(
         label,
-        style: Theme.of(context)
-            .textTheme
-            .bodySmall
-            ?.copyWith(color: _cs.onSurfaceVariant),
+        style: Theme.of(
+          context,
+        ).textTheme.bodySmall?.copyWith(color: _cs.onSurfaceVariant),
       ),
       Expanded(
         child: SliderTheme(
@@ -595,9 +589,9 @@ class _DesktopLyricSettingsPanelState
           '${value.round()}°',
           textAlign: TextAlign.end,
           style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: _cs.onSurface,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
+            color: _cs.onSurface,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
         ),
       ),
     ];
@@ -620,18 +614,17 @@ class _DesktopLyricSettingsPanelState
             children: [
               Text(
                 '字号',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: _cs.onSurface),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: _cs.onSurface),
               ),
               const Spacer(),
               Text(
                 '${fontSize.round()} sp',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: _cs.primary,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
+                  color: _cs.primary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
             ],
           ),
@@ -646,11 +639,10 @@ class _DesktopLyricSettingsPanelState
                 enabled: fontSize > DesktopLyricService.minFontSize,
                 onTap: () async {
                   AppHaptics.lightImpact(HapticCategory.control);
-                  final next = (fontSize - 2)
-                      .clamp(
-                        DesktopLyricService.minFontSize,
-                        DesktopLyricService.maxFontSize,
-                      );
+                  final next = (fontSize - 2).clamp(
+                    DesktopLyricService.minFontSize,
+                    DesktopLyricService.maxFontSize,
+                  );
                   await _svc.setFontSize(next);
                 },
               ),
@@ -699,11 +691,10 @@ class _DesktopLyricSettingsPanelState
                 enabled: fontSize < DesktopLyricService.maxFontSize,
                 onTap: () async {
                   AppHaptics.lightImpact(HapticCategory.control);
-                  final next = (fontSize + 2)
-                      .clamp(
-                        DesktopLyricService.minFontSize,
-                        DesktopLyricService.maxFontSize,
-                      );
+                  final next = (fontSize + 2).clamp(
+                    DesktopLyricService.minFontSize,
+                    DesktopLyricService.maxFontSize,
+                  );
                   await _svc.setFontSize(next);
                 },
               ),
@@ -717,10 +708,9 @@ class _DesktopLyricSettingsPanelState
             children: [
               Text(
                 '行式',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: _cs.onSurface),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: _cs.onSurface),
               ),
               const Spacer(),
               SizedBox(
@@ -801,6 +791,7 @@ class _DesktopLyricSettingsPanelState
 
   Widget _buildSurfaceSection() {
     final opacity = _draggingOpacity ?? _svc.opacity.toDouble();
+    final widthRatio = _draggingWidthRatio ?? _svc.widthRatio.toDouble();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -811,18 +802,17 @@ class _DesktopLyricSettingsPanelState
             children: [
               Text(
                 '不透明度',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: _cs.onSurface),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: _cs.onSurface),
               ),
               const Spacer(),
               Text(
                 '${opacity.round()}%',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: _cs.primary,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
+                  color: _cs.primary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
             ],
           ),
@@ -835,7 +825,10 @@ class _DesktopLyricSettingsPanelState
               inactiveTrackColor: Colors.transparent,
               overlayColor: Colors.transparent,
               trackHeight: 18,
-              trackShape: _AlphaTrackShape(checkerA: _checkerA, checkerB: _checkerB),
+              trackShape: _AlphaTrackShape(
+                checkerA: _checkerA,
+                checkerB: _checkerB,
+              ),
               thumbShape: const RoundSliderThumbShape(
                 enabledThumbRadius: 6,
                 disabledThumbRadius: 6,
@@ -880,6 +873,72 @@ class _DesktopLyricSettingsPanelState
           ),
         ),
         const SizedBox(height: AppSpacing.xs),
+        // 卡片宽度：占屏宽的百分比。原生收到后 updateViewLayout 立即重排窗口，
+        // 所以拖动时悬浮窗会实时跟着变宽变窄（与不透明度同一套即时预览口径）。
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+          child: Row(
+            children: [
+              Text(
+                '卡片宽度',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: _cs.onSurface),
+              ),
+              const Spacer(),
+              Text(
+                '${widthRatio.round()}%',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: _cs.primary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(6, 0, 10, 0),
+          child: kTvBuild
+              ? RemoteSlider(
+                  value: widthRatio,
+                  min: DesktopLyricService.minWidthRatio.toDouble(),
+                  max: DesktopLyricService.maxWidthRatio.toDouble(),
+                  divisions:
+                      DesktopLyricService.maxWidthRatio -
+                      DesktopLyricService.minWidthRatio,
+                  label: '${widthRatio.round()}%',
+                  onChanged: (v) {
+                    AppHaptics.tick(HapticCategory.control);
+                    setState(() => _draggingWidthRatio = v);
+                    // ignore: discarded_futures
+                    _svc.setWidthRatio(v.round(), persist: false);
+                  },
+                  onChangeEnd: (v) async {
+                    setState(() => _draggingWidthRatio = null);
+                    await _svc.setWidthRatio(v.round());
+                  },
+                )
+              : Slider(
+                  value: widthRatio,
+                  min: DesktopLyricService.minWidthRatio.toDouble(),
+                  max: DesktopLyricService.maxWidthRatio.toDouble(),
+                  divisions:
+                      DesktopLyricService.maxWidthRatio -
+                      DesktopLyricService.minWidthRatio,
+                  label: '${widthRatio.round()}%',
+                  onChanged: (v) {
+                    AppHaptics.tick(HapticCategory.control);
+                    setState(() => _draggingWidthRatio = v);
+                    // ignore: discarded_futures
+                    _svc.setWidthRatio(v.round(), persist: false);
+                  },
+                  onChangeEnd: (v) async {
+                    setState(() => _draggingWidthRatio = null);
+                    await _svc.setWidthRatio(v.round());
+                  },
+                ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
         _buildLockRow(),
       ],
     );
@@ -907,7 +966,11 @@ class _DesktopLyricSettingsPanelState
         ),
         child: Row(
           children: [
-            Icon(locked ? Icons.lock : Icons.lock_open, size: 18, color: accent),
+            Icon(
+              locked ? Icons.lock : Icons.lock_open,
+              size: 18,
+              color: accent,
+            ),
             const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: Column(
@@ -916,9 +979,9 @@ class _DesktopLyricSettingsPanelState
                   Text(
                     locked ? '已锁定 · 点击穿透' : '锁定歌词',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: _cs.onSurface,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: _cs.onSurface,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -926,9 +989,9 @@ class _DesktopLyricSettingsPanelState
                         ? '悬浮窗已不可点击，需在此处或通知栏解锁'
                         : '开启后悬浮窗不再接收触摸，手指可穿过它操作下层界面',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _cs.onSurfaceVariant,
-                          height: 1.4,
-                        ),
+                      color: _cs.onSurfaceVariant,
+                      height: 1.4,
+                    ),
                   ),
                 ],
               ),
@@ -991,7 +1054,12 @@ class _LeadingFractionClipper extends CustomClipper<Rect> {
 
   @override
   Rect getClip(Size size) {
-    return Rect.fromLTRB(0, 0, size.width * fraction.clamp(0.0, 1.0), size.height);
+    return Rect.fromLTRB(
+      0,
+      0,
+      size.width * fraction.clamp(0.0, 1.0),
+      size.height,
+    );
   }
 
   @override
@@ -1041,8 +1109,7 @@ class _RainbowTrackShape extends RoundedRectSliderTrackShape {
       canvas.drawRRect(
         rrect,
         Paint()
-          ..shader = const LinearGradient(colors: _rainbow)
-              .createShader(rect),
+          ..shader = const LinearGradient(colors: _rainbow).createShader(rect),
       );
       canvas.drawRRect(
         rrect,
@@ -1088,15 +1155,15 @@ class _AlphaTrackShape extends RoundedRectSliderTrackShape {
     final rect = Rect.fromLTWH(trackLeft, trackTop, trackWidth, trackHeight);
     final canvas = context.canvas;
     canvas.save();
-    canvas.clipRRect(RRect.fromRectAndRadius(
-      rect,
-      Radius.circular(trackHeight / 2),
-    ));
+    canvas.clipRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(trackHeight / 2)),
+    );
     // 1) 棋盘格
     final checkerPaint = Paint();
     for (double y = rect.top; y < rect.bottom; y += _cell) {
       for (double x = rect.left; x < rect.right; x += _cell) {
-        final odd = (((x - rect.left) ~/ _cell) + ((y - rect.top) ~/ _cell)) % 2;
+        final odd =
+            (((x - rect.left) ~/ _cell) + ((y - rect.top) ~/ _cell)) % 2;
         checkerPaint.color = odd == 0 ? checkerA : checkerB;
         canvas.drawRect(
           Rect.fromLTWH(

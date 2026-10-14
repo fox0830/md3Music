@@ -266,6 +266,11 @@ void main() {
           reason: '壁纸档=$bg：底色一旦被 Opacity 裹住就跟着变透明',
         );
       }
+      // 取 0.15：此处 opacity = 0.15*origin/(0.2*screenH) = 0.5，淡入确实在进行。
+      // 原来写的 0.3 恰好等于淡入终点（opacity == 1.0），而那一刻 Opacity 已被
+      // 按值短路掉（见 _PanelContentOpacity）——断言会落空，但那不是回归：
+      // alpha=1 的 Opacity 只是白白多一次全屏 saveLayer。
+      await tester.pumpWidget(host(0.15));
       expect(
         find.ancestor(
           of: find.byType(_FakePage),
@@ -273,6 +278,42 @@ void main() {
         ),
         findsOneWidget,
         reason: '淡入应只作用于页面内容',
+      );
+    });
+
+    testWidgets('淡入结束后不再包 Opacity（省掉整段行程的全屏 saveLayer）', (
+      tester,
+    ) async {
+      // 淡入只占行程前 ~21%（kPlayerPanelFadeSpanRatio），其余 ~79% 恒为
+      // alpha=1。Opacity 只要存在就会触发一次全屏 saveLayer，alpha=1 时那层
+      // 纯属白交——这是展开动画掉帧的一笔。按值短路后端点逐像素等价。
+      for (final p in [0.3, 0.6, 1.0]) {
+        await tester.pumpWidget(host(p));
+        expect(
+          find.ancestor(
+            of: find.byType(_FakePage),
+            matching: find.byType(Opacity),
+          ),
+          findsNothing,
+          reason: 'p=$p 时 opacity 已满，不该还留着空转的 Opacity 层',
+        );
+      }
+    });
+
+    testWidgets('页面内容外层有 RepaintBoundary（整页不随平移每帧重录）', (
+      tester,
+    ) async {
+      // 外层 Transform 每帧改 offset → markNeedsPaint；没有这层边界的话
+      // 整个播放页（4600+ 行）子树每帧重新录制 display list，是展开动画
+      // 最大的一笔开销。
+      await tester.pumpWidget(host(0.5));
+      expect(
+        find.ancestor(
+          of: find.byType(_FakePage),
+          matching: find.byType(RepaintBoundary),
+        ),
+        findsWidgets,
+        reason: '页面内容必须被重绘边界圈住，否则平移会拖着整页重录',
       );
     });
 

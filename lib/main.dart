@@ -293,6 +293,10 @@ Future<void> _restoreLyricPushPref() async {
     // 逐字歌词时间偏移：加载到内存缓存（播放页每帧读取），默认 0
     await settings.getLyricTimeOffset();
 
+    // 悬浮歌词样式配置（字号/双行/配色…）：与开关状态无关，无条件载入。
+    // 不载的话，本次启动没开过悬浮歌词时设置面板会显示成默认值（像是设置丢了）。
+    await DesktopLyricService.instance.loadConfigFromPrefs();
+
     // 蓝牙歌词（独立开关）
     final btLyricEnabled = await settings.getBluetoothLyricEnabled();
     await DesktopLyricService.instance.setBluetoothLyricEnabled(btLyricEnabled);

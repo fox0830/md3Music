@@ -511,7 +511,16 @@ class _FullPlayerState extends State<FullPlayer>
     _syncLandscapeImmersiveFlag();
     _dragRoute?.controller.removeStatusListener(_onDragRouteStatus);
     _dragRoute = null;
-    if (mounted) setState(() {});
+    // 推迟一帧再重建：本方法在动画**最后一帧**触发，原地 setState 会让整页
+    // （4600+ 行）在落位那一帧重建，正是「松手落地顿一下」的来源。
+    //
+    // 推迟是安全的：PlayerSystemUiScope 此刻 controller.value 已 >= 1.0，
+    // 算出的 expanded/useMain 与 dragRoute=null 时**完全相同**，所以这一帧
+    // 的视觉输出一模一样；重建只是为了把订阅从路由 controller 换成
+    // AlwaysStoppedAnimation（路由尚未 pop，controller 还活着，不存在悬垂）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   /// 跳转到当前歌曲所在专辑页。

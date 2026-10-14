@@ -54,6 +54,10 @@ void main() {
   setUp(() {
     bus = PlayerCoverMorphBus.instance;
     bus.reset();
+    // 形变在生产环境已整体关闭（PlayerCoverMorphBus.kCoverMorphEnabled）。
+    // 机制与本文件的护栏都原样保留，这里显式开启以继续驱动真实逻辑。
+    PlayerCoverMorphBus.kCoverMorphEnabled = true;
+    addTearDown(() => PlayerCoverMorphBus.kCoverMorphEnabled = false);
     // reset() 不清 coverSuppressed / playerCoverVisible，显式归位，
     // 防其它用例/文件把「写真压制」「封面不可见」的残留状态带进来。
     bus.coverSuppressed = false;
@@ -84,37 +88,33 @@ void main() {
   });
 
   Future<void> pumpLayer(WidgetTester tester) => tester.pumpWidget(
-        const MaterialApp(
-          home: Stack(children: [PlayerCoverMorphLayer()]),
-        ),
-      );
+    const MaterialApp(home: Stack(children: [PlayerCoverMorphLayer()])),
+  );
 
   // 只在形变层自己的子树里找，避免命中 MaterialApp 内部的同名控件
   Finder layerClip() => find.descendant(
-        of: find.byType(PlayerCoverMorphLayer),
-        matching: find.byType(ClipRRect),
-      );
+    of: find.byType(PlayerCoverMorphLayer),
+    matching: find.byType(ClipRRect),
+  );
 
   Finder layerArtwork() => find.descendant(
-        of: find.byType(PlayerCoverMorphLayer),
-        matching: find.byType(PlayerArtworkImage),
-      );
+    of: find.byType(PlayerCoverMorphLayer),
+    matching: find.byType(PlayerArtworkImage),
+  );
 
   /// 屏幕上真正生效的圆角 = 局部半径 × scale（子树被 Transform 缩放）。
   /// 与 player_cover_morph_test.dart 的 screenRadiusAt 同一算法。
   double screenRadiusAt(WidgetTester tester, double p) {
-    final local = (tester.widget<ClipRRect>(layerClip()).borderRadius
-            as BorderRadius)
-        .topLeft
-        .x;
+    final local =
+        (tester.widget<ClipRRect>(layerClip()).borderRadius as BorderRadius)
+            .topLeft
+            .x;
     final targetWidth = 44 + (720 - 44) * p;
     return local * (targetWidth / 720);
   }
 
   group('守门（必须绿）', () {
-    testWidgets('转场每一帧形变层都真的在重建：layerBuilds 逐帧 +1，圆角逐帧变化', (
-      tester,
-    ) async {
+    testWidgets('转场每一帧形变层都真的在重建：layerBuilds 逐帧 +1，圆角逐帧变化', (tester) async {
       // 先以 p=0 挂载（真机 App 启动态），端点早退不计数。
       playerExpansion.value = 0.0;
       await pumpLayer(tester);
@@ -174,9 +174,7 @@ void main() {
   });
 
   group('hoist 目标（飞行封面子树只构建 1 次；改前基线 = 每帧 1 次）', () {
-    testWidgets('整段飞行封面子树只构建 1 次', (
-      tester,
-    ) async {
+    testWidgets('整段飞行封面子树只构建 1 次', (tester) async {
       playerExpansion.value = 0.0;
       await pumpLayer(tester);
       for (final p in steps) {
@@ -305,11 +303,7 @@ void main() {
       // 推到 1.0 端点：飞行子树整体 dispose（hoist 后其 memo 缓存须随之释放）。
       playerExpansion.value = 1.0;
       await tester.pump();
-      expect(
-        layerClip(),
-        findsNothing,
-        reason: '端点 p=1 交还播放页，飞行子树不得残留',
-      );
+      expect(layerClip(), findsNothing, reason: '端点 p=1 交还播放页，飞行子树不得残留');
 
       // 第二程：3 帧、签名全程不变。
       // - hoist 正确落地 → 恰好再构建 1 次（缓存不跨转场泄漏 ⇒ 不是 0；
@@ -349,9 +343,7 @@ void main() {
     setUp(() => trace.debugResetTrace());
     tearDown(() => trace.debugResetTrace());
 
-    testWidgets('聚合正确：avg 用实际入账帧数、max 与 over8 各自统计', (
-      tester,
-    ) async {
+    testWidgets('聚合正确：avg 用实际入账帧数、max 与 over8 各自统计', (tester) async {
       for (var i = 0; i < 3; i++) {
         trace.noteFlightFrame(progress: 0.5, drag: false);
       }
@@ -469,13 +461,13 @@ void main() {
 
       // 空列表与单元素都不能除零或越界。
       expect(CoverMorphFrameTrace.debugPercentilesOf(const <int>[]).median, 0);
-      expect(CoverMorphFrameTrace.debugPercentilesOf(const <int>[7000]).median,
-          7000);
+      expect(
+        CoverMorphFrameTrace.debugPercentilesOf(const <int>[7000]).median,
+        7000,
+      );
     });
 
-    testWidgets('形变层逐帧重建时 layer 热点次数必须等于帧数（防挂点空转）', (
-      tester,
-    ) async {
+    testWidgets('形变层逐帧重建时 layer 热点次数必须等于帧数（防挂点空转）', (tester) async {
       const steps = <double>[0.1, 0.2, 0.3, 0.4, 0.5];
       playerExpansion.value = 0.0;
       await pumpLayer(tester);
@@ -489,11 +481,17 @@ void main() {
       final line = trace.debugSummaries.single;
       // `layer` 与 `cover` 都在每帧的形变层里；次数为 0 就说明计时壳没接上。
       expect(line, contains('layer=avg'));
-      expect(line, contains('(n=${steps.length})'),
-          reason: '热点次数必须等于帧数，否则日志会骗人说「成本不在形变层」');
+      expect(
+        line,
+        contains('(n=${steps.length})'),
+        reason: '热点次数必须等于帧数，否则日志会骗人说「成本不在形变层」',
+      );
       expect(line, contains('cover=avg'));
-      expect(line, contains('pageBuilds=0'),
-          reason: '只挂形变层的 harness 里整页不该 build');
+      expect(
+        line,
+        contains('pageBuilds=0'),
+        reason: '只挂形变层的 harness 里整页不该 build',
+      );
       expect(line, contains('gapMed='));
       expect(line, contains('resid='));
     });
@@ -549,9 +547,7 @@ void main() {
       expect(second, isNot(contains('kind=drag')));
     });
 
-    testWidgets('形变层飞行时三棵阶段热点必须逐帧计数（防挂点空转）', (
-      tester,
-    ) async {
+    testWidgets('形变层飞行时三棵阶段热点必须逐帧计数（防挂点空转）', (tester) async {
       // 文字侧要两端矩形都发布，否则 textWillDraw 为假、文字块根本不产出。
       bus.publishMiniText(
         rect: const Rect.fromLTWH(60, 1900, 200, 36),
@@ -583,8 +579,11 @@ void main() {
       final line = trace.debugSummaries.single;
 
       // 封面与文字两棵都在飞行子树里：每帧都得重画（矩阵/圆角/字号逐帧变）。
-      expect(hotN(line, 'coverPaint'), flight.length,
-          reason: '飞行封面没挂上阶段热点，封面那笔 paint 会永远落在 resid 里');
+      expect(
+        hotN(line, 'coverPaint'),
+        flight.length,
+        reason: '飞行封面没挂上阶段热点，封面那笔 paint 会永远落在 resid 里',
+      );
       expect(hotN(line, 'textPaint'), flight.length);
       // 文字块每帧换字号 → 必然重排；封面那棵只改矩阵，重排次数本就少，
       // 所以只要求它被记到过（n=0 才是挂点失效的信号）。
@@ -595,29 +594,25 @@ void main() {
       expect(hotN(line, 'pagePaint'), 0);
     });
 
-    testWidgets('阶段热点分得清「重排」与「只重画」，且不改几何', (
-      tester,
-    ) async {
+    testWidgets('阶段热点分得清「重排」与「只重画」，且不改几何', (tester) async {
       // 探针的语义就是本轮要拿来二分的：换尺寸=重排，换颜色=只重画。
       Widget tree({required double size, required Color color}) => Align(
-            alignment: Alignment.topLeft,
-            child: CoverMorphPhaseProbe(
-              layoutKey: 'pageLayout',
-              paintKey: 'pagePaint',
-              child: SizedBox(
-                width: size,
-                height: size,
-                child: ColoredBox(color: color),
-              ),
-            ),
-          );
+        alignment: Alignment.topLeft,
+        child: CoverMorphPhaseProbe(
+          layoutKey: 'pageLayout',
+          paintKey: 'pagePaint',
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: ColoredBox(color: color),
+          ),
+        ),
+      );
 
       /// 先开桶再 pump：热点是在这一帧的 layout/paint 阶段写的，桶没开就全丢。
       Future<String> segment(Widget tree) async {
         trace.noteFlightFrame(progress: 0.5, drag: false);
-        await tester.pumpWidget(
-          MaterialApp(home: Scaffold(body: tree)),
-        );
+        await tester.pumpWidget(MaterialApp(home: Scaffold(body: tree)));
         trace.debugFlushNow();
         return trace.debugSummaries.last;
       }
@@ -628,15 +623,20 @@ void main() {
 
       final second = await segment(tree(size: 100, color: Colors.blue));
       expect(hotN(second, 'pagePaint'), 1, reason: '换颜色要重画');
-      expect(hotN(second, 'pageLayout'), 0,
-          reason: '约束没变就不该重排，否则「layout 大」这个信号没有区分力');
+      expect(
+        hotN(second, 'pageLayout'),
+        0,
+        reason: '约束没变就不该重排，否则「layout 大」这个信号没有区分力',
+      );
 
       final third = await segment(tree(size: 140, color: Colors.blue));
       expect(hotN(third, 'pageLayout'), 1, reason: '换尺寸必然重排');
 
-      expect(tester.getSize(find.byType(CoverMorphPhaseProbe)),
-          const Size(140, 140),
-          reason: 'RenderProxyBox 必须原样透传约束——它不该改变几何');
+      expect(
+        tester.getSize(find.byType(CoverMorphPhaseProbe)),
+        const Size(140, 140),
+        reason: 'RenderProxyBox 必须原样透传约束——它不该改变几何',
+      );
     });
   });
 
@@ -686,8 +686,11 @@ void main() {
           prev = s;
         }
         // 单档跳变不得超过「量程 ÷ 档数」（多给一点浮点余量）。
-        expect(worst, lessThanOrEqualTo(span / kCoverMorphTextSteps + 1e-9),
-            reason: '超过就说明某个字段在按绝对步长跳，不是在按量程分档');
+        expect(
+          worst,
+          lessThanOrEqualTo(span / kCoverMorphTextSteps + 1e-9),
+          reason: '超过就说明某个字段在按绝对步长跳，不是在按量程分档',
+        );
         return worst;
       }
 
@@ -710,14 +713,15 @@ void main() {
           coverMorphLerpTextStyle(mini, full, i / 13)!,
       ];
       final distinct = styles.toSet();
-      expect(distinct.length, lessThan(styles.length),
-          reason: '值相等是 RenderParagraph 不标脏的唯一依据；全不相等＝档位化没生效');
+      expect(
+        distinct.length,
+        lessThan(styles.length),
+        reason: '值相等是 RenderParagraph 不标脏的唯一依据；全不相等＝档位化没生效',
+      );
       expect(distinct.length, lessThanOrEqualTo(7));
     });
 
-    testWidgets('飞行途中标题样式逐帧复用，且没有逐帧紧约束排版', (
-      tester,
-    ) async {
+    testWidgets('飞行途中标题样式逐帧复用，且没有逐帧紧约束排版', (tester) async {
       // 中文标题两串通常同串（`歌名` vs `歌名`.toUpperCase()）→ 走的是非 append
       // 那一支，原先那里是 `Align + ellipsis`，段落每帧拿到新的块宽就重排。
       bus.publishMiniText(
@@ -753,9 +757,11 @@ void main() {
         styles.add(tester.widgetList<Text>(titleFinder).first.style);
       }
 
-      expect(styles.whereType<TextStyle>().toSet().length,
-          lessThan(styles.length),
-          reason: '相邻帧必须能复用同一套样式值，否则文字每帧重新排版');
+      expect(
+        styles.whereType<TextStyle>().toSet().length,
+        lessThan(styles.length),
+        reason: '相邻帧必须能复用同一套样式值，否则文字每帧重新排版',
+      );
 
       // 排版宽度无界：两行都由 OverflowBox 兜宽，块宽进不了段落的排版键。
       expect(
@@ -766,8 +772,11 @@ void main() {
         findsAtLeastNWidgets(2),
       );
       for (final text in tester.widgetList<Text>(titleFinder)) {
-        expect(text.overflow, isNot(TextOverflow.ellipsis),
-            reason: '飞行途中打省略号、松手又消失，是这里明确要避免的穿帮');
+        expect(
+          text.overflow,
+          isNot(TextOverflow.ellipsis),
+          reason: '飞行途中打省略号、松手又消失，是这里明确要避免的穿帮',
+        );
         expect(text.softWrap, isFalse);
       }
     });

@@ -377,6 +377,15 @@ class _MorphCoverFlightState extends State<_MorphCoverFlight> {
     );
     final shadowColor = bus.shadowColor;
     if (shadowColor == null) return artwork;
+    // 阴影参数**档位化**：radius / intensity 逐帧连续变化时，每帧都会生成一份
+    // 新 decoration，两层 BoxShadow（blur 钳在 [8,30] 和 [16,60]）就得每帧重新
+    // 跑 MaskFilter 模糊——raster 线程大户，而封面图本体的 RepaintBoundary
+    // 刻意没把阴影圈进去（见上方 _artworkFor 处注释）。
+    //
+    // 复用文字那套 8 档吸附（coverMorphTextSteppedProgress）：相邻帧参数完全
+    // 相等时 decoration 判等成立，整段转场只重新模糊 8 次而不是 60~120 次。
+    // 两端仍逐位精确——吸附在 t=0 / t=1 天然给出 0.0 / 1.0。
+    final steppedT = coverMorphTextSteppedProgress(t);
     return DecoratedBox(
       // side 用视觉盒边长（暂停态 0.85 已计入）：settledScale=1 时与真实阴影
       // 的取径完全一致；暂停交接下模糊/扩散的上下限钳制会差出零点几到几个
@@ -384,8 +393,8 @@ class _MorphCoverFlightState extends State<_MorphCoverFlight> {
       decoration: PlayerCoverShadow.decoration(
         shadowColor: shadowColor,
         side: settled.width,
-        radius: coverMorphLocalRadius(t, scale),
-        intensity: kCoverShadowIntensity.value * t,
+        radius: coverMorphLocalRadius(steppedT, scale),
+        intensity: kCoverShadowIntensity.value * steppedT,
       ),
       child: artwork,
     );

@@ -64,10 +64,6 @@ class SettingsRepository {
   static const String _keyUpdateReminderEnabled =
       'settings_update_reminder_enabled';
 
-  /// Android 桌面图标是否使用旧版图标（默认关闭，沿用当前图标）。
-  static const String _keyLegacyAppIconEnabled =
-      'settings_legacy_app_icon_enabled';
-
   /// 上次网络检查的时间戳（ms）。属于记账状态而非用户设置，故不加 settings_ 前缀。
   static const String _keyUpdateLastCheckMs = 'update_last_check_ms';
 
@@ -179,10 +175,7 @@ class SettingsRepository {
 
   Future<void> setPlaylistCoverTransitionEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(
-      playlistCoverTransitionEnabledPreferenceKey,
-      enabled,
-    );
+    await prefs.setBool(playlistCoverTransitionEnabledPreferenceKey, enabled);
   }
 
   /// 悬浮播放器的进度指示开关。默认开启（未设置时返回 true）。
@@ -367,17 +360,6 @@ class SettingsRepository {
     await prefs.setBool(_keyUpdateReminderEnabled, enabled);
   }
 
-  /// 是否还原旧版 Android 桌面图标。未设置时沿用当前图标。
-  Future<bool> getLegacyAppIconEnabled() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_keyLegacyAppIconEnabled) ?? false;
-  }
-
-  Future<void> setLegacyAppIconEnabled(bool enabled) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyLegacyAppIconEnabled, enabled);
-  }
-
   /// 上次成功发起 Release 检查的时间戳（ms）；未检查过返回 0。
   Future<int> getUpdateLastCheckMs() async {
     final prefs = await SharedPreferences.getInstance();
@@ -458,8 +440,9 @@ class SettingsRepository {
   /// 播放页低频读内存镜像即可，避免每帧异步读 SharedPreferences；
   /// 设置页修改后经镜像即时生效，无需重进播放页（同步时机对齐 lyricTimeOffsetMs：
   /// getter 读盘后回填、setter 写盘前先更新）。
-  static final ValueNotifier<bool> songDanmakuEnabled =
-      ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> songDanmakuEnabled = ValueNotifier<bool>(
+    false,
+  );
 
   Future<bool> getSongDanmakuEnabled() async {
     final prefs = await SharedPreferences.getInstance();
@@ -513,6 +496,35 @@ class SettingsRepository {
 
   // ===== 桌面歌词配置 =====
 
+  /// 悬浮歌词开关本身的记忆状态（默认关）。
+  ///
+  /// 与下面那些纯样式项不同，这一项决定冷启动是否自动重开悬浮窗。
+  /// 恢复侧见 `DesktopLyricService.restoreEnabledFromPrefs`：无悬浮窗权限时
+  /// 静默跳过，不会在启动瞬间弹提示或跳系统授权页。
+  Future<bool> getDesktopLyricEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('settings_dl_enabled') ?? false;
+  }
+
+  Future<void> setDesktopLyricEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('settings_dl_enabled', enabled);
+  }
+
+  /// 悬浮歌词卡片宽度占屏宽的百分比（30~95）。
+  ///
+  /// 默认 95 ≈ 改造前写死的「屏宽 − 16dp」，老用户升级后观感不变。
+  /// 上下限与原生 `FloatingLyricService.MIN/MAX_WIDTH_RATIO` 必须一致。
+  Future<int> getDesktopLyricWidthRatio() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getInt('settings_dl_width_ratio') ?? 95).clamp(30, 95);
+  }
+
+  Future<void> setDesktopLyricWidthRatio(int ratio) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('settings_dl_width_ratio', ratio.clamp(30, 95));
+  }
+
   Future<double> getDesktopLyricFontSize() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getDouble('settings_dl_font_size') ?? 18.0;
@@ -546,7 +558,9 @@ class SettingsRepository {
   Future<int> getDesktopLyricGradientStart() async {
     final prefs = await SharedPreferences.getInstance();
     // toUnsigned(32)：修复前原生回灌的负数 Kotlin Int 可能还留在盘里
-    return (prefs.getInt('settings_dl_grad_start') ?? 0xFF00E5FF).toUnsigned(32);
+    return (prefs.getInt('settings_dl_grad_start') ?? 0xFF00E5FF).toUnsigned(
+      32,
+    );
   }
 
   Future<void> setDesktopLyricGradientStart(int v) async {
@@ -1326,16 +1340,17 @@ class SettingsRepository {
   // 键名与 MusicHapticsService 内的常量必须逐字一致：两侧各持一份真相时，
   // 症状是"设置页打开了但重启后又是关的"。
 
-  static const String _keyMusicHapticsEnabled = 'settings_music_haptics_enabled';
-  static const String _keyMusicHapticsStrength = 'settings_music_haptics_strength';
+  static const String _keyMusicHapticsEnabled =
+      'settings_music_haptics_enabled';
+  static const String _keyMusicHapticsStrength =
+      'settings_music_haptics_strength';
   static const String _keyMusicHapticsSensitivity =
       'settings_music_haptics_sensitivity';
-  static const String _keyMusicHapticsWaveform = 'settings_music_haptics_waveform';
+  static const String _keyMusicHapticsWaveform =
+      'settings_music_haptics_waveform';
   static const String _keyMusicHapticsSnare = 'settings_music_haptics_snare';
-  static const String _keyMusicHapticsOffset =
-      'settings_music_haptics_offset';
-  static const String _keyMusicHapticsScope =
-      'settings_music_haptics_scope';
+  static const String _keyMusicHapticsOffset = 'settings_music_haptics_offset';
+  static const String _keyMusicHapticsScope = 'settings_music_haptics_scope';
 
   /// 音乐节奏震动总开关，默认**关闭**：这是个会持续驱动马达的功能，
   /// 默认开会在用户不知情的情况下耗电发热。
@@ -1363,7 +1378,10 @@ class SettingsRepository {
   /// 检测灵敏度 0.3~3.0，默认 1.0。越大越容易触发。
   Future<double> getMusicHapticsSensitivity() async {
     final prefs = await SharedPreferences.getInstance();
-    return (prefs.getDouble(_keyMusicHapticsSensitivity) ?? 1.0).clamp(0.3, 3.0);
+    return (prefs.getDouble(_keyMusicHapticsSensitivity) ?? 1.0).clamp(
+      0.3,
+      3.0,
+    );
   }
 
   Future<void> setMusicHapticsSensitivity(double value) async {

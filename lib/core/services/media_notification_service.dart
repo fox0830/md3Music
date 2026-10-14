@@ -231,14 +231,32 @@ class MediaNotificationService {
   static Future<bool> startFloatingLyric({
     required String lyric,
     required String title,
+    bool visible = true,
   }) async {
     try {
       final r = await _channel.invokeMethod<bool>('startFloatingLyric', {
         'lyric': lyric,
         'title': title,
+        // App 在前台时开启：窗口直接以隐藏态创建，避免闪现
+        'visible': visible,
       });
       return r ?? false;
     } catch (_) {
+      return false;
+    }
+  }
+
+  /// 悬浮窗显隐（服务保持常驻，歌词推送不中断）。
+  ///
+  /// 与 [stopFloatingLyric] 的区别：那是真关闭（销毁服务、开关置否），
+  /// 这里只是把窗口藏起来，用于 App 前后台切换。
+  static Future<bool> setFloatingLyricVisible(bool visible) async {
+    try {
+      final r = await _channel.invokeMethod<bool>('setFloatingLyricVisible', {
+        'visible': visible,
+      });
+      return r ?? false;
+    } catch (e) {
       return false;
     }
   }

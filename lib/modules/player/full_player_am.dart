@@ -1753,7 +1753,12 @@ class _AmStyleFullPlayerState extends State<AmStyleFullPlayer>
     _syncLandscapeImmersiveFlag();
     _dragRoute?.controller.removeStatusListener(_onDragRouteStatus);
     _dragRoute = null;
-    if (mounted) setState(() {});
+    // 同 full_player.dart 的 _onDragRouteStatus：推迟一帧，别让整页重建
+    // 压在动画最后一帧上（落位顿挫的来源）。此刻 controller.value 已 >= 1.0，
+    // PlayerSystemUiScope 的输出与 dragRoute=null 时一致，推迟不改变观感。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   /// 跳转到当前歌曲所在专辑页。

@@ -412,7 +412,7 @@ class _DesktopSidebar extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'MD3Music',
+                    '酷狗',
                     style: textTheme.titleMedium,
                     overflow: TextOverflow.ellipsis,
                   ),

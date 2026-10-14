@@ -18,8 +18,8 @@ import '../../providers/favorites_provider.dart';
 import '../../providers/kugou_provider.dart';
 import '../../services/kugou_api/kugou_models.dart';
 import '../../widgets/scroll_aware_app_bar.dart';
+import '../../widgets/settings_icon_button.dart';
 import '../login/login_page.dart';
-import '../settings/settings_page.dart';
 import 'cloud_music_page.dart';
 import 'listen_ranking_page.dart';
 import 'blacklist_page.dart';
@@ -35,7 +35,7 @@ class UserCenterPage extends StatefulWidget {
   /// 可选扩展：用户中心快捷操作网格的额外条目（默认关闭，由私有构建注入）。
   /// 返回的 Widget 追加在操作网格 Row 末尾。
   static List<Widget> Function(BuildContext context, ColorScheme cs)?
-      extraActionItemsBuilder;
+  extraActionItemsBuilder;
 
   const UserCenterPage({super.key});
 
@@ -151,13 +151,7 @@ class _UserCenterPageState extends State<UserCenterPage> {
         tabId: 'user',
         scrollController: _scrollController,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () => Navigator.of(
-              context,
-            rootNavigator: true,
-            ).push(MaterialPageRoute(builder: (_) => const SettingsPage())),
-          ),
+          const SettingsIconButton(),
           Consumer<KugouProvider>(
             builder: (context, kugou, _) => IconButton(
               icon: Icon(kugou.isLoggedIn ? Icons.logout : Icons.login),
@@ -172,34 +166,34 @@ class _UserCenterPageState extends State<UserCenterPage> {
       ),
       body: ContentWidth(
         child: Consumer<KugouProvider>(
-        builder: (context, kugou, _) {
-          if (!kugou.isLoggedIn) return _buildNotLoggedIn(cs, tt);
-          return Md3PullToRefresh(
-            onRefresh: () async {
-              await kugou.getVipDetail();
-              await kugou.getVipMonthRecord();
-              await kugou.getGradeInfo();
-            },
-            child: CustomScrollView(
-              controller: _scrollController,
-              // 内容不满屏时也允许下拉触发刷新
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: [
-                _buildUserHeader(cs, tt, kugou),
-                const SliverToBoxAdapter(child: Gap(AppSpacing.lg)),
-                _buildActionGrid(cs),
-                const SliverToBoxAdapter(child: Gap(AppSpacing.lg)),
-                _buildVipCard(cs, tt, kugou),
-                // 80 之上叠加系统手势条（小横条）高度，避免末项被压住
-                SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: 80 + MediaQuery.paddingOf(context).bottom,
+          builder: (context, kugou, _) {
+            if (!kugou.isLoggedIn) return _buildNotLoggedIn(cs, tt);
+            return Md3PullToRefresh(
+              onRefresh: () async {
+                await kugou.getVipDetail();
+                await kugou.getVipMonthRecord();
+                await kugou.getGradeInfo();
+              },
+              child: CustomScrollView(
+                controller: _scrollController,
+                // 内容不满屏时也允许下拉触发刷新
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  _buildUserHeader(cs, tt, kugou),
+                  const SliverToBoxAdapter(child: Gap(AppSpacing.lg)),
+                  _buildActionGrid(cs),
+                  const SliverToBoxAdapter(child: Gap(AppSpacing.lg)),
+                  _buildVipCard(cs, tt, kugou),
+                  // 80 之上叠加系统手势条（小横条）高度，避免末项被压住
+                  SliverToBoxAdapter(
+                    child: SizedBox(
+                      height: 80 + MediaQuery.paddingOf(context).bottom,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
@@ -253,11 +247,7 @@ class _UserCenterPageState extends State<UserCenterPage> {
       return CircleAvatar(
         radius: radius,
         backgroundColor: cs.primary.withValues(alpha: 0.2),
-        child: Icon(
-          Icons.person,
-          size: 32,
-          color: cs.onPrimaryContainer,
-        ),
+        child: Icon(Icons.person, size: 32, color: cs.onPrimaryContainer),
       );
     }
 
@@ -297,6 +287,7 @@ class _UserCenterPageState extends State<UserCenterPage> {
   static const double _kAvatarOverhangX = 8;
   static const double _kAvatarOverhangY = 18;
   static const double _kAvatarRing = 3;
+
   /// 头像让位宽度：内容左缘 = 20 + 52 = 72，与头像右缘（62）留 10 呼吸位。
   /// 这条线同时是 LV 文字与进度条的左对齐基准。
   static const double _kAvatarGutter = 52;
@@ -315,7 +306,12 @@ class _UserCenterPageState extends State<UserCenterPage> {
     return SliverToBoxAdapter(
       child: Padding(
         // 顶部留出空间容纳超出卡片的头像
-        padding: EdgeInsets.fromLTRB(AppSpacing.lg, 28, AppSpacing.lg, AppSpacing.lg),
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          28,
+          AppSpacing.lg,
+          AppSpacing.lg,
+        ),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
@@ -463,9 +459,10 @@ class _UserCenterPageState extends State<UserCenterPage> {
       child: _buildUserAvatar(kugou, cs),
     );
     void openProfileEdit() {
-      Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute(builder: (_) => const ProfileEditPage()),
-      );
+      Navigator.of(
+        context,
+        rootNavigator: true,
+      ).push(MaterialPageRoute(builder: (_) => const ProfileEditPage()));
     }
 
     if (kTvBuild) {
@@ -618,9 +615,7 @@ class _UserCenterPageState extends State<UserCenterPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('退出当前账号'),
-        content: Text(
-          hasOthers ? '将退出当前账号，并自动切换到其他账号。确定？' : '确定要退出登录吗？',
-        ),
+        content: Text(hasOthers ? '将退出当前账号，并自动切换到其他账号。确定？' : '确定要退出登录吗？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -650,7 +645,12 @@ class _UserCenterPageState extends State<UserCenterPage> {
       builder: (sheetCtx) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              0,
+              AppSpacing.lg,
+              AppSpacing.lg,
+            ),
             child: Consumer<KugouProvider>(
               builder: (context, provider, _) {
                 final cs = Theme.of(context).colorScheme;
@@ -685,7 +685,9 @@ class _UserCenterPageState extends State<UserCenterPage> {
                       const Gap(AppSpacing.sm),
                       if (accounts.isEmpty)
                         Padding(
-                          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xxl),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: AppSpacing.xxl,
+                          ),
                           child: Column(
                             children: [
                               Icon(
@@ -730,10 +732,12 @@ class _UserCenterPageState extends State<UserCenterPage> {
                       ],
                       const Gap(AppSpacing.md),
                       FilledButton.icon(
-                        onPressed: () => Navigator.of(context, rootNavigator: true).push(
-                          MaterialPageRoute(builder: (_) => const LoginPage(),
+                        onPressed: () =>
+                            Navigator.of(context, rootNavigator: true).push(
+                              MaterialPageRoute(
+                                builder: (_) => const LoginPage(),
                               ),
-                        ),
+                            ),
                         icon: const Icon(Icons.add),
                         label: const Text('登录新账号'),
                       ),
@@ -754,9 +758,10 @@ class _UserCenterPageState extends State<UserCenterPage> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     void open() {
-      Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute(builder: (_) => const LoginDevicesPage()),
-      );
+      Navigator.of(
+        context,
+        rootNavigator: true,
+      ).push(MaterialPageRoute(builder: (_) => const LoginDevicesPage()));
     }
 
     final tile = ListTile(
@@ -793,9 +798,10 @@ class _UserCenterPageState extends State<UserCenterPage> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     void open() {
-      Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute(builder: (_) => const BlacklistPage()),
-      );
+      Navigator.of(
+        context,
+        rootNavigator: true,
+      ).push(MaterialPageRoute(builder: (_) => const BlacklistPage()));
     }
 
     final tile = ListTile(
@@ -830,9 +836,10 @@ class _UserCenterPageState extends State<UserCenterPage> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     void open() {
-      Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute(builder: (_) => const MusicPreferencePage()),
-      );
+      Navigator.of(
+        context,
+        rootNavigator: true,
+      ).push(MaterialPageRoute(builder: (_) => const MusicPreferencePage()));
     }
 
     final tile = ListTile(
@@ -870,7 +877,8 @@ class _UserCenterPageState extends State<UserCenterPage> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final isCurrent = account.userid == kugou.userid;
-    final displayName = (account.nickname != null && account.nickname!.isNotEmpty)
+    final displayName =
+        (account.nickname != null && account.nickname!.isNotEmpty)
         ? account.nickname!
         : '用户 ${account.userid}';
     return ListTile(
@@ -900,9 +908,7 @@ class _UserCenterPageState extends State<UserCenterPage> {
               ),
               child: Text(
                 '登录已过期',
-                style: tt.labelSmall?.copyWith(
-                  color: cs.onErrorContainer,
-                ),
+                style: tt.labelSmall?.copyWith(color: cs.onErrorContainer),
               ),
             ),
           ],
@@ -927,7 +933,9 @@ class _UserCenterPageState extends State<UserCenterPage> {
       // 过期账号点击直接引导重新登录/删除，不再走切换（凭证已失效）
       onTap: account.expired
           ? () => _handleExpiredAccount(context, account, kugou)
-          : (isCurrent ? null : () => _switchToAccount(context, account, kugou)),
+          : (isCurrent
+                ? null
+                : () => _switchToAccount(context, account, kugou)),
     );
   }
 
@@ -1065,9 +1073,7 @@ class _UserCenterPageState extends State<UserCenterPage> {
       builder: (ctx) => AlertDialog(
         title: const Text('删除账号'),
         content: Text(
-          isCurrent
-              ? '将删除当前账号并退出登录（若有其他账号会自动切换）。确定？'
-              : '确定删除该账号？其登录态将被清除。',
+          isCurrent ? '将删除当前账号并退出登录（若有其他账号会自动切换）。确定？' : '确定删除该账号？其登录态将被清除。',
         ),
         actions: [
           TextButton(

@@ -655,7 +655,7 @@ class _OnboardingPageState extends State<OnboardingPage>
         children: [
           _buildStyleCard(
             colorScheme: colorScheme,
-            title: 'MD3Music',
+            title: '酷狗',
             subtitle: 'Material 3 风格',
             isSelected: !_useAmStylePlayer,
             onTap: () => setState(() => _useAmStylePlayer = false),

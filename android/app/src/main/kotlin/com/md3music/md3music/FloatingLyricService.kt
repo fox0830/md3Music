@@ -17,7 +17,6 @@ import android.graphics.PixelFormat
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
-import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
@@ -68,6 +67,11 @@ class FloatingLyricService : Service() {
     // touch/drag — vertical only
     private var initialY = 0
     private var initialTouchY = 0f
+    private var initialX = 0
+    private var initialTouchX = 0f
+
+    /// 当前水平档位（[ALIGN_CENTER] / [ALIGN_START] / [ALIGN_END]）。
+    private var alignX = ALIGN_CENTER
     private var isDragging = false
     private var dragStartTime = 0L
     private var expanded = false
@@ -93,6 +97,18 @@ class FloatingLyricService : Service() {
     // 当前悬浮窗宽度与歌词换行最大宽度（旋转时随 displayMetrics 重算）
     private var windowWidthPx = 0
     private var lyricMaxWidthPx = 0
+
+    /// 卡片宽度占屏宽的百分比（设置 → 设备歌词 → 卡片宽度）。
+    /// 默认 95 ≈ 改造前写死的「屏宽 − 16dp」，老用户升级后观感不变。
+    private var widthRatio = MAX_WIDTH_RATIO
+
+    /// 按当前 [widthRatio] 算窗口像素宽。createFloatingView / relayoutForOrientation /
+    /// handleSetConfig 三处共用这一条规则，避免各算各的再悄悄分叉。
+    private fun computeWindowWidthPx(): Int {
+        val screen = resources.displayMetrics.widthPixels
+        val ratio = widthRatio.coerceIn(MIN_WIDTH_RATIO, MAX_WIDTH_RATIO)
+        return (screen * ratio / 100).coerceAtLeast(dp(120))
+    }
 
     // views
     private var lockButton: ImageView? = null
@@ -151,6 +167,13 @@ class FloatingLyricService : Service() {
         const val NOTIFICATION_ID = 1003
         private const val PREFS_NAME = "floating_lyric"
         private const val KEY_Y_PX = "y_px"
+        private const val KEY_ALIGN = "align_x"
+
+        /// 水平吸附档位。窗口宽度可调到屏宽的 30% 后，左右会空出大片余量，
+        /// 固定居中就显得很别扭；但自由拖动在窄窗口下又难对齐，故做成三档。
+        const val ALIGN_CENTER = 0
+        const val ALIGN_START = 1
+        const val ALIGN_END = 2
         // 阶段8：桌面歌词运行标志。开启期间本服务常驻 FGS（1003 可见通知）撑住
         // 进程前台，AudioPlaybackService 据此让位（不再显示保活空通知 1002）。
         @Volatile
@@ -173,6 +196,16 @@ class FloatingLyricService : Service() {
         const val ACTION_SET_PLAYING = "com.md3music.md3music.SET_PLAYING"
         const val ACTION_STOP = "com.md3music.md3music.STOP_LYRIC"
         const val ACTION_TOGGLE_LOCK = "com.md3music.md3music.TOGGLE_LOCK"
+        // 窗口显隐（App 回前台时隐藏，退后台再显示）。与 ACTION_STOP 的区别：
+        // 服务continues 常驻，歌词/进度推送与 FGS 通知都不中断，只是窗口不可见。
+        const val ACTION_SET_VISIBLE = "com.md3music.md3music.SET_VISIBLE"
+        const val EXTRA_VISIBLE = "visible"
+
+        /// 服务启动时窗口的初始可见性（由 MainActivity 在 startForegroundService
+        /// 之前置位）。App 在前台时开启桌面歌词，窗口须一创建就是隐藏的，
+        /// 否则 addView 到 Dart 下发 setVisible(false) 之间会闪现一下。
+        @Volatile
+        var initialVisible = true
         const val EXTRA_LYRIC = "lyric"
         const val EXTRA_NEXT_LYRIC = "nextLyric"
         const val EXTRA_TITLE = "title"
@@ -185,6 +218,10 @@ class FloatingLyricService : Service() {
         const val EXTRA_DISPLAY_SCALE = "displayScale"
         const val EXTRA_DOUBLE_LINE = "doubleLine"
         const val EXTRA_OPACITY = "opacity"
+        const val EXTRA_WIDTH_RATIO = "widthRatio"
+        /// 卡片宽度占屏宽的百分比上下限，与设置页滑块的区间一一对应。
+        const val MIN_WIDTH_RATIO = 30
+        const val MAX_WIDTH_RATIO = 95
         const val EXTRA_LOCKED = "locked"
         const val EXTRA_GRADIENT_START = "gradientStart"
         const val EXTRA_GRADIENT_END = "gradientEnd"
@@ -303,7 +340,8 @@ class FloatingLyricService : Service() {
                     intent.getIntExtra(EXTRA_PRESET_INDEX, lastPresetIndex),
                     intent.getIntExtra(EXTRA_CUSTOM_GRAD_START, customStart),
                     intent.getIntExtra(EXTRA_CUSTOM_GRAD_END, customEnd),
-                    intent.getIntExtra(EXTRA_CUSTOM_UNPLAYED, customUnplayed)
+                    intent.getIntExtra(EXTRA_CUSTOM_UNPLAYED, customUnplayed),
+                    intent.getIntExtra(EXTRA_WIDTH_RATIO, widthRatio)
                 )
             }
             ACTION_SET_PLAYING -> {
@@ -316,8 +354,24 @@ class FloatingLyricService : Service() {
             ACTION_TOGGLE_LOCK -> {
                 setLocked(!locked)
             }
+            ACTION_SET_VISIBLE -> {
+                setWindowVisible(intent.getBooleanExtra(EXTRA_VISIBLE, true))
+            }
         }
         return START_STICKY
+    }
+
+    /// 切换悬浮窗可见性，但**不**销毁服务。
+    ///
+    /// 用 rootView.visibility 而非 removeView/addView：窗口 token、拖动位置、
+    /// 展开态、锁定态全部原样保留，切回来无需重建，也不触发 startFloatingLyric
+    /// 那套 completeFloatingStart 握手与 5s 超时。
+    /// GONE 而非 INVISIBLE：GONE 不占布局、不接触摸，等价于窗口消失。
+    fun setWindowVisible(visible: Boolean) {
+        val root = rootView ?: return
+        val target = if (visible) View.VISIBLE else View.GONE
+        if (root.visibility == target) return
+        root.visibility = target
     }
 
     /// 同进程直达调用入口（MainActivity handler 直接调用，省去 Intent 中转）。
@@ -347,9 +401,19 @@ class FloatingLyricService : Service() {
                         opacity: Int?, locked: Boolean?,
                         gradientStart: Int?, gradientEnd: Int?, unplayedColor: Int?,
                         colorMode: Int?, activePreset: Int?,
-                        customStart: Int?, customEnd: Int?, customUnplayed: Int?) {
+                        customStart: Int?, customEnd: Int?, customUnplayed: Int?,
+                        widthRatio: Int? = null) {
         fontSize?.let { fontSizeSp = it }
         displayScale?.let { this.displayScale = it }
+        // 宽度变了要立刻重排窗口：WindowManager.LayoutParams.width 不随 requestLayout
+        // 自动跟进，必须显式 updateViewLayout（与 relayoutForOrientation 同一套动作）
+        widthRatio?.let {
+            val next = it.coerceIn(MIN_WIDTH_RATIO, MAX_WIDTH_RATIO)
+            if (next != this.widthRatio) {
+                this.widthRatio = next
+                applyWindowWidth()
+            }
+        }
         doubleLine?.let { this.doubleLine = it }
         opacity?.let { this.opacity = it }
         locked?.let {
@@ -562,7 +626,10 @@ class FloatingLyricService : Service() {
                 setColor(0xCC000000.toInt())
                 // 不描边：那圈 1dp 白色轮廓线在浅色壁纸上很扎眼（用户要求去掉）
             }
-            setPadding(dp(20), dp(12), dp(20), dp(12))
+            // 上下 6 而非 20：两个 lyricText 自身还各带 2~6dp 内边距，
+            // 叠加后卡片实际上下留白仍有 ~10dp。改动需与设置页预览同步
+            // （desktop_lyric_settings_panel.dart 的 _buildPreview）。
+            setPadding(dp(20), dp(6), dp(20), dp(6))
             gravity = Gravity.CENTER_HORIZONTAL
         }
         val root = rootView as LinearLayout
@@ -582,8 +649,12 @@ class FloatingLyricService : Service() {
         // （先瞬移后动画回中）。固定后 gravity 居中恒成立，永不跳动。
         // 只留 16dp 边距：5 个色块（预设×4 + 自定义）+ 分段控件要在内容区排下，
         // 32dp 时第 5 个色块被裁掉（2026-10-10 用户反馈）。
-        windowWidthPx = resources.displayMetrics.widthPixels - dp(16)
+        windowWidthPx = computeWindowWidthPx()
         val fixedWindowWidth = windowWidthPx
+        // 恢复上次的水平档位（默认居中）
+        alignX = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getInt(KEY_ALIGN, ALIGN_CENTER)
+            .coerceIn(ALIGN_CENTER, ALIGN_END)
 
         // 歌词文本最大宽度：窗口宽减去根 padding(20×2)，LinearLayout 约束实际生效，
         // maxWidth 保留为兜底，防止超长歌词撑破窗口
@@ -595,16 +666,22 @@ class FloatingLyricService : Service() {
             gravity = Gravity.CENTER
             maxLines = 2
             maxWidth = lyricMaxWidth
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(8), dp(6), dp(8), dp(4))
+            // 上下各 1：卡片留白全部交给 rootView 的 dp(6) 统一控制，这里只留
+            // 最低限度的 1dp 防止描边被 TextView 边界裁掉。两行各 1dp 相加
+            // = 行间距 2dp，与设置页预览的 SizedBox(height: 2) 对齐。
+            setPadding(dp(8), dp(1), dp(8), dp(1))
         }
         lyricText2 = GradientTextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, scaledFontSizeSp())
             gravity = Gravity.CENTER
             maxLines = 2
             maxWidth = lyricMaxWidth
-            setPadding(dp(8), dp(2), dp(8), dp(6))
+            // 与第一行同口径，见上
+            setPadding(dp(8), dp(1), dp(8), dp(1))
             visibility = View.GONE
+            // 第二行是「下一句」，永远还没唱到：恒用未唱色，与设置页预览一致。
+            // 它不接收卡拉OK 同步，不设此标志会被整行刷成已唱渐变色。
+            setAlwaysUnplayed(true)
         }
         col.addView(lyricText1)
         col.addView(lyricText2)
@@ -691,12 +768,18 @@ class FloatingLyricService : Service() {
         ).apply {
             // Centered horizontally, vertical position adjustable
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            x = 0  // Always centered: X locked to 0
+            // 水平档位：0 = 居中（默认），左右档为相对中心的偏移。
+            // 此处 windowWidthPx 已算好，alignOffsetPx 可直接用。
+            x = alignOffsetPx(alignX)
             // 恢复上次拖动位置；clamp 防止换机/旋转后屏幕变矮导致位置落在屏幕外
             y = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                 .getInt(KEY_Y_PX, dp(80))
                 .coerceIn(0, resources.displayMetrics.heightPixels - dp(120))
         }
+
+        // App 在前台时开启桌面歌词：窗口一创建就隐藏，避免 addView 之后
+        // 才收到 setVisible(false) 造成的闪现。
+        rootView?.visibility = if (initialVisible) View.VISIBLE else View.GONE
 
         return try {
             windowManager?.addView(rootView, params)
@@ -715,18 +798,80 @@ class FloatingLyricService : Service() {
     /// 按当前显示尺寸重算悬浮窗宽度与纵向位置。
     /// 修复横屏开启（缓存了宽屏尺寸）后转竖屏时，窗口宽 > 屏宽导致
     /// CENTER_HORIZONTAL 无法居中的错位；两个方向旋转都走这里，行为一致。
+    /// 档位 → `params.x` 的像素偏移。
+    ///
+    /// gravity 保留 `CENTER_HORIZONTAL`，所以 x 的语义是**相对屏幕中心的偏移**
+    /// 而非绝对左边距——居中档恒为 0，不必改动既有的居中逻辑。
+    /// 左右档的偏移量 = (屏宽 − 窗口宽) / 2，正好把窗口推到贴边。
+    private fun alignOffsetPx(align: Int): Int {
+        val slack = (resources.displayMetrics.widthPixels - windowWidthPx) / 2
+        if (slack <= 0) return 0 // 窗口几乎占满屏宽时三档等价，一律居中
+        return when (align) {
+            ALIGN_START -> -slack
+            ALIGN_END -> slack
+            else -> 0
+        }
+    }
+
+    /// 应用水平档位并落盘。[persist] = false 用于宽度/转屏变化时的纯重算。
+    private fun applyAlign(align: Int, persist: Boolean = true) {
+        alignX = align
+        val p = params ?: return
+        p.x = alignOffsetPx(align)
+        if (persist) {
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .putInt(KEY_ALIGN, align)
+                .apply()
+        }
+        val root = rootView ?: return
+        try {
+            windowManager?.updateViewLayout(root, p)
+        } catch (_: Exception) {}
+    }
+
+    /// 按当前 [widthRatio] 重排窗口宽度（设置页拖动「卡片宽度」时调用）。
+    ///
+    /// 与 [relayoutForOrientation] 的区别只在触发源：那个是屏幕转向，这个是用户改设置。
+    /// 动作完全一致，故共用 [computeWindowWidthPx] 这条宽度规则。
+    private fun applyWindowWidth() {
+        val root = rootView ?: return
+        val p = params ?: return
+        val wm = windowManager ?: return
+
+        val newWidth = computeWindowWidthPx()
+        if (newWidth == windowWidthPx) return
+        windowWidthPx = newWidth
+        lyricMaxWidthPx = newWidth - dp(40)
+
+        p.width = newWidth
+        // 贴边偏移依赖「屏宽 − 窗口宽」，宽度一变必须重算：
+        // 否则窗口变宽后原偏移会把它推出屏幕外。
+        p.x = alignOffsetPx(alignX)
+        lyricText1?.maxWidth = lyricMaxWidthPx
+        lyricText2?.maxWidth = lyricMaxWidthPx
+        lyricText1?.requestLayout()
+        lyricText2?.requestLayout()
+        root.requestLayout()
+        try {
+            wm.updateViewLayout(root, p)
+        } catch (_: Exception) {}
+    }
+
     private fun relayoutForOrientation() {
         val root = rootView ?: return
         val p = params ?: return
         val wm = windowManager ?: return
 
-        // 与 createFloatingView 的初始宽度保持同一条规则（screen - 16dp）
-        val newWidth = resources.displayMetrics.widthPixels - dp(16)
+        // 与 createFloatingView 的初始宽度保持同一条规则（见 computeWindowWidthPx）
+        val newWidth = computeWindowWidthPx()
         val newMaxWidth = newWidth - dp(40)
         windowWidthPx = newWidth
         lyricMaxWidthPx = newMaxWidth
 
         p.width = newWidth
+        // 转屏后屏宽变化，贴边偏移同样要按新屏宽重算（见 alignOffsetPx）
+        p.x = alignOffsetPx(alignX)
         // 旋转后屏幕高度变化，重新 clamp 纵向位置，防止落在屏幕外
         p.y = p.y.coerceIn(0, resources.displayMetrics.heightPixels - dp(120))
 
@@ -1514,7 +1659,10 @@ class FloatingLyricService : Service() {
         }
     }
 
-    /// Touch listener: vertical-only drag (X locked at center)
+    /// 触摸处理：纵向自由拖动 + 横向三档吸附（左 / 中 / 右）。
+    ///
+    /// 横向在拖动中 1:1 跟手、松手才吸附到最近档：拖动中就吸附的话，
+    /// 手指还按着窗口会自己跳开，手感很差。
     private fun setupTouchListener(view: View) {
         view.setOnTouchListener { _, event ->
             if (locked) return@setOnTouchListener false
@@ -1523,6 +1671,8 @@ class FloatingLyricService : Service() {
                 MotionEvent.ACTION_DOWN -> {
                     initialY = params?.y ?: 0
                     initialTouchY = event.rawY
+                    initialX = params?.x ?: 0
+                    initialTouchX = event.rawX
                     isDragging = false
                     dragStartTime = System.currentTimeMillis()
                     // 记下按在哪个区：只有按在上区（歌词预览）的轻点才展开/收起，
@@ -1534,12 +1684,15 @@ class FloatingLyricService : Service() {
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dy = event.rawY - initialTouchY
-                    if (Math.abs(dy) > 10) {
+                    val dx = event.rawX - initialTouchX
+                    if (Math.abs(dy) > 10 || Math.abs(dx) > 10) {
                         isDragging = true
                     }
                     if (isDragging) {
-                        // Only move vertically — X stays at 0 (centered)
+                        // 纵向自由跟手；横向也 1:1 跟手，但松手时才吸附到最近档
+                        // （拖动中不吸附：否则手指还按着窗口就会自己跳，很难受）
                         params?.y = initialY + dy.toInt()
+                        params?.x = initialX + dx.toInt()
                         windowManager?.updateViewLayout(rootView, params)
                     }
                     true
@@ -1551,6 +1704,19 @@ class FloatingLyricService : Service() {
                                 .edit()
                                 .putInt(KEY_Y_PX, y)
                                 .apply()
+                        }
+                        // 横向吸附：按松手时窗口中心落在屏幕的哪一段定档。
+                        // 用三等分而不是「离哪档近算哪档」——后者在窗口很宽
+                        // （slack 小）时三档的吸附中心挤在一起，几乎选不中左右。
+                        params?.let { p ->
+                            val screen = resources.displayMetrics.widthPixels
+                            val center = screen / 2 + p.x
+                            val next = when {
+                                center < screen / 3 -> ALIGN_START
+                                center > screen * 2 / 3 -> ALIGN_END
+                                else -> ALIGN_CENTER
+                            }
+                            applyAlign(next)
                         }
                     }
                     if (!isDragging && System.currentTimeMillis() - dragStartTime < 300 &&
@@ -1595,11 +1761,17 @@ class FloatingLyricService : Service() {
 /// 逐字二分色支持（KRC）：当前行携带 KRC 字级时间戳（karaokeActive 为 true）时，
 /// onDraw 中先画整行白色（未唱色），再 clipRect 已唱宽度画渐变色，实现
 /// "已唱渐变 / 未唱白"的二分色效果；无逐字时间戳（LRC/纯文本）时整行渐变色（保持原行为）
+/// 描边宽度 = 字号 × 该比例。随字号缩放，避免大字号时描边显得过细。
+/// STROKE 以字形轮廓为中心向两侧各扩一半，故实际外扩约为该值的一半。
+private const val kStrokeWidthRatio = 0.08f
+
 class GradientTextView(context: Context) : TextView(context) {
     private var startColor = 0xFF00E5FF.toInt()
     private var endColor = 0xFFFF00FF.toInt()
     // 未唱色（白色），用于逐字二分色模式下绘制未唱部分
     private var unplayedColor = 0xFFFFFFFF.toInt()
+    // 见 setAlwaysUnplayed：双行模式第二行恒以未唱色绘制
+    private var alwaysUnplayed = false
 
     // P0: 缓存 LinearGradient shader，避免 onDraw 每帧新建对象引发 GC 卡顿。
     // shader 只与颜色和宽度相关，仅在它们变化时重建
@@ -1758,6 +1930,20 @@ class GradientTextView(context: Context) : TextView(context) {
 
     fun setUnplayedColor(color: Int) {
         unplayedColor = color
+        // 恒未唱的行：把未唱色落到 textColor 上，onDraw 里就不必再 setTextColor
+        // （那会在绘制中触发 invalidate，自己把自己拖进满帧重绘）。
+        if (alwaysUnplayed) setTextColor(color)
+        invalidate()
+    }
+
+    /// 恒以未唱色绘制整行（双行模式的第二行 = 下一句，永远还没唱到）。
+    ///
+    /// 不设此标志时，第二行因为从不接收卡拉OK 同步（karaokeActive 恒 false）
+    /// 会落进 onDraw 的 else 分支被整行刷成渐变 = 已唱色，与设置页预览不一致。
+    fun setAlwaysUnplayed(value: Boolean) {
+        if (alwaysUnplayed == value) return
+        alwaysUnplayed = value
+        if (value) setTextColor(unplayedColor)
         invalidate()
     }
 
@@ -1783,11 +1969,46 @@ class GradientTextView(context: Context) : TextView(context) {
     override fun onDraw(canvas: Canvas) {
         val width = measuredWidth.toFloat()
 
-        // 只画文字本身：已唱用渐变色，未唱用未唱色。不描边、不投影、不铺底板
-        // —— 用户要求去掉一切多余样式，可读性交给「不透明度」这一项设置。
+        // 文字 = 黑色描边打底 + 彩色填充（已唱渐变 / 未唱未唱色）。不投影、不铺底板。
+        // 描边是为了在任意壁纸上都可读——纯靠「不透明度」在浅色壁纸上压不住。
 
         val text = text?.toString() ?: ""
         val enableKrcMode = karaokeActive && text.isNotEmpty()
+
+        // 描边 pass：必须排在所有填充分支之前，否则会盖住填充色。
+        //
+        // 这里直接改 TextPaint 并调 layout.draw()，而不是 setTextColor + super.onDraw：
+        // TextView.onDraw 会用 currentTextColor 覆盖 paint.color，想换色就只能走
+        // setTextColor，而它内部 invalidate()——在 onDraw 里调用等于每帧自排下一帧，
+        // 悬浮窗会陷入满帧重绘。layout.draw 用的就是这支 paint，绕开了这个限制。
+        val strokePx = textSize * kStrokeWidthRatio
+        if (strokePx > 0f && text.isNotEmpty()) {
+            val l = layout
+            if (l != null) {
+                val savedStyle = paint.style
+                val savedStrokeWidth = paint.strokeWidth
+                val savedColor = paint.color
+                val savedShader = paint.shader
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = strokePx
+                // ROUND 接头：避免字形尖角处描边外翻出毛刺
+                paint.strokeJoin = Paint.Join.ROUND
+                paint.color = Color.GRAY
+                paint.shader = null
+                canvas.save()
+                // layout 坐标原点在 padding 内侧，与 super.onDraw 的平移口径一致
+                canvas.translate(
+                    totalPaddingLeft.toFloat(),
+                    extendedPaddingTop.toFloat()
+                )
+                l.draw(canvas)
+                canvas.restore()
+                paint.style = savedStyle
+                paint.strokeWidth = savedStrokeWidth
+                paint.color = savedColor
+                paint.shader = savedShader
+            }
+        }
 
         if (enableKrcMode) {
             // KRC 逐字二分色：先画整段灰色（未唱色），再按行 clip 已唱区域画渐变色
@@ -1849,6 +2070,12 @@ class GradientTextView(context: Context) : TextView(context) {
 
             // 恢复 textColor（下次 onDraw 用）
             setTextColor(savedTextColor)
+        } else if (alwaysUnplayed) {
+            // 双行第二行：整行未唱色。textColor 已由 setAlwaysUnplayed/setUnplayedColor
+            // 预先置成未唱色（不在 onDraw 里改，避免 invalidate 自激），这里只需清掉
+            // shader——它优先级高于 textColor，不清会被渐变盖住。
+            paint.shader = null
+            super.onDraw(canvas)
         } else {
             // LRC/纯文本：整行渐变色（原行为）
             if (width > 0) {

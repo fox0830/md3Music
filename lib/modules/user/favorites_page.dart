@@ -5,6 +5,7 @@ import 'package:dpad/dpad.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart' hide M3EPullToRefreshIndicator;
 import '../../widgets/m3e_pull_to_refresh_fixed.dart';
+import '../../widgets/settings_icon_button.dart';
 import '../../widgets/md3_pull_to_refresh.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -106,7 +107,9 @@ class _FavoritesPageState extends State<FavoritesPage>
   /// `keepScrollOffset = true` 会让重建后的 ListView 恢复旧 offset，
   /// `extentBefore > 0` 致 M3E 下拉条件（extentBefore == 0）不满足、
   /// 歌单 tab 无法下拉刷新；专辑/歌手 tab 用临时 controller 不受影响。
-  final ScrollController _scrollController = ScrollController(keepScrollOffset: false);
+  final ScrollController _scrollController = ScrollController(
+    keepScrollOffset: false,
+  );
 
   /// 「我喜欢」歌单动态封面：解析出的（歌单接口第一首）专辑封面 URL，
   /// 持久化到 SharedPreferences，离线启动仍可显示（见改版计划四）。
@@ -400,8 +403,10 @@ class _FavoritesPageState extends State<FavoritesPage>
         for (var i = 0; i < list.length; i++) _playlistKey(list[i]): i,
       };
       list.sort((a, b) {
-        final fallbackA = manualOrder.length + (originalIndex[_playlistKey(a)] ?? 0);
-        final fallbackB = manualOrder.length + (originalIndex[_playlistKey(b)] ?? 0);
+        final fallbackA =
+            manualOrder.length + (originalIndex[_playlistKey(a)] ?? 0);
+        final fallbackB =
+            manualOrder.length + (originalIndex[_playlistKey(b)] ?? 0);
         return (rank[_playlistKey(a)] ?? fallbackA).compareTo(
           rank[_playlistKey(b)] ?? fallbackB,
         );
@@ -447,9 +452,7 @@ class _FavoritesPageState extends State<FavoritesPage>
 
   /// 排序按钮：点击进入该分组的自由排序模式，再次点击（✓）退出。
   void _toggleReorderingGroup(int group) {
-    setState(
-      () => _reorderingGroup = _reorderingGroup == group ? 0 : group,
-    );
+    setState(() => _reorderingGroup = _reorderingGroup == group ? 0 : group);
   }
 
   // ==================== 数据加载 ====================
@@ -594,7 +597,10 @@ class _FavoritesPageState extends State<FavoritesPage>
     }
   }
 
-  Future<void> _loadAlbums({bool noCache = false, bool showLoading = true}) async {
+  Future<void> _loadAlbums({
+    bool noCache = false,
+    bool showLoading = true,
+  }) async {
     if (!mounted) return;
     if (showLoading) setState(() => _isLoadingAlbums = true);
 
@@ -679,7 +685,10 @@ class _FavoritesPageState extends State<FavoritesPage>
     }
   }
 
-  Future<void> _loadArtists({bool noCache = false, bool showLoading = true}) async {
+  Future<void> _loadArtists({
+    bool noCache = false,
+    bool showLoading = true,
+  }) async {
     if (!mounted) return;
     if (showLoading) setState(() => _isLoadingArtists = true);
 
@@ -849,9 +858,7 @@ class _FavoritesPageState extends State<FavoritesPage>
       // 检查删除结果：status==1 或 error_code==0 视为成功，失败不再静默。
       final type = _isCreated(playlist) ? 1 : 0;
       final r = await api.deletePlaylist(listId, type: type);
-      debugPrint(
-        '[DeletePlaylist] listid=$listId type=$type result=$r',
-      );
+      debugPrint('[DeletePlaylist] listid=$listId type=$type result=$r');
       if (r?['status'] == 1 || r?['error_code'] == 0) {
         okCount++;
       } else {
@@ -867,8 +874,8 @@ class _FavoritesPageState extends State<FavoritesPage>
       final msg = failCount == 0
           ? '成功删除 $okCount 个歌单'
           : okCount > 0
-              ? '成功删除 $okCount 个，$failCount 个失败'
-              : '删除失败，请稍后重试';
+          ? '成功删除 $okCount 个，$failCount 个失败'
+          : '删除失败，请稍后重试';
       showToast(msg, long: true);
     }
   }
@@ -915,9 +922,7 @@ class _FavoritesPageState extends State<FavoritesPage>
       }
       // 专辑都是「收藏别人的」，取消收藏固定用 type=0（与专辑详情页一致）。
       final r = await api.deletePlaylist(listId, type: 0);
-      debugPrint(
-        '[DeleteAlbum] listid=$listId type=0 result=$r',
-      );
+      debugPrint('[DeleteAlbum] listid=$listId type=0 result=$r');
       if (r?['status'] == 1 || r?['error_code'] == 0) {
         okCount++;
       } else {
@@ -933,8 +938,8 @@ class _FavoritesPageState extends State<FavoritesPage>
       final msg = failCount == 0
           ? '成功删除 $okCount 个专辑'
           : okCount > 0
-              ? '成功删除 $okCount 个，$failCount 个失败'
-              : '删除失败，请稍后重试';
+          ? '成功删除 $okCount 个，$failCount 个失败'
+          : '删除失败，请稍后重试';
       showToast(msg, long: true);
     }
   }
@@ -969,6 +974,10 @@ class _FavoritesPageState extends State<FavoritesPage>
                     ? _deleteSelectedAlbums
                     : _deleteSelectedPlaylists,
               ),
+            // 仅一级形态显示：本页也会被 push 成二级页（LaunchPad / 桌面快捷方式），
+            // 那种场景下顶栏已有返回键，再挂设置入口既多余又容易误触
+            if (isPinnedNavPage(context, 'favorites'))
+              const SettingsIconButton(),
           ],
           bottom: TabBar(
             controller: _tabController,
@@ -1147,9 +1156,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                 keyFor: _playlistKey,
                 onBuildTile: (playlist) =>
                     _buildPlaylistTile(playlist, _playlists.indexOf(playlist)),
-                trailing: _isManaging
-                    ? null
-                    : _buildPlaylistSortButton(2),
+                trailing: _isManaging ? null : _buildPlaylistSortButton(2),
               ),
             // 底部加载更多指示器
             if (_isLoadingMorePlaylists)
@@ -1349,61 +1356,64 @@ class _FavoritesPageState extends State<FavoritesPage>
           };
 
     Widget content = InkWell(
-        onTap: tapAction,
-        onLongPress: longPressAction,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
-          color: isSelected
-              ? colorScheme.primaryContainer.withValues(alpha: 0.3)
-              : null,
-          child: Row(
-            children: [
-              if (_isManaging)
-                Padding(
-                  padding: const EdgeInsets.only(right: AppSpacing.md),
-                  child: Icon(
-                    isSelected ? Icons.check_circle : Icons.circle_outlined,
-                    color: isSelected
-                        ? colorScheme.primary
-                        : colorScheme.onSurfaceVariant,
-                    size: 22,
-                  ),
-                ),
-              _buildPlaylistCover(playlist, index, colorScheme),
-              const Gap(AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      playlist.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const Gap(AppSpacing.xxs),
-                    Text(
-                      '${playlist.songCount} 首',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+      onTap: tapAction,
+      onLongPress: longPressAction,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.sm,
+        ),
+        color: isSelected
+            ? colorScheme.primaryContainer.withValues(alpha: 0.3)
+            : null,
+        child: Row(
+          children: [
+            if (_isManaging)
+              Padding(
+                padding: const EdgeInsets.only(right: AppSpacing.md),
+                child: Icon(
+                  isSelected ? Icons.check_circle : Icons.circle_outlined,
+                  color: isSelected
+                      ? colorScheme.primary
+                      : colorScheme.onSurfaceVariant,
+                  size: 22,
                 ),
               ),
-              // 歌单行右侧不再显示箭头（改版计划四）；排序模式保留拖拽把手。
-              if (reordering)
-                Icon(
-                  Icons.drag_indicator,
-                  color: colorScheme.onSurfaceVariant,
-                  size: 20,
-                ),
-            ],
-          ),
+            _buildPlaylistCover(playlist, index, colorScheme),
+            const Gap(AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    playlist.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const Gap(AppSpacing.xxs),
+                  Text(
+                    '${playlist.songCount} 首',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // 歌单行右侧不再显示箭头（改版计划四）；排序模式保留拖拽把手。
+            if (reordering)
+              Icon(
+                Icons.drag_indicator,
+                color: colorScheme.onSurfaceVariant,
+                size: 20,
+              ),
+          ],
         ),
-      );
+      ),
+    );
 
     // tv: TV 构建下歌单卡单停点（DpadFocusable 默认 excludeChildFocus，
     // 内层 InkWell 不再产生第二个停点）；OK=打开/切换选中，OK 长按=进管理模式并选中。
@@ -1514,7 +1524,10 @@ class _FavoritesPageState extends State<FavoritesPage>
               setState(() => _selectedIndices.add(index));
             },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.sm,
+        ),
         color: isSelected
             ? colorScheme.primaryContainer.withValues(alpha: 0.3)
             : null,
@@ -1573,6 +1586,10 @@ class _FavoritesPageState extends State<FavoritesPage>
             const Gap(AppSpacing.md),
             Expanded(
               child: Column(
+                // 宽屏走 GridView 时格子高度固定（childAspectRatio 3.5），远高于
+                // 52px 封面。不收缩的话 Column 会撑满格子并把文字顶到最上方，
+                // 与居中的封面错位；min 让 Row 的 center 对齐生效。
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
@@ -1698,7 +1715,10 @@ class _FavoritesPageState extends State<FavoritesPage>
         );
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.sm,
+        ),
         child: Row(
           children: [
             CircleAvatar(
@@ -1718,6 +1738,8 @@ class _FavoritesPageState extends State<FavoritesPage>
             const Gap(AppSpacing.md),
             Expanded(
               child: Column(
+                // 同 _buildAlbumTile：宽屏 GridView 格子高度固定，不收缩会把名字顶到最上方。
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(

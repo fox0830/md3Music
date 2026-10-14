@@ -4,11 +4,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PictureInPictureParams
 import android.app.UiModeManager
-import android.content.ComponentName
 import android.content.Intent
 import android.content.Context
 import android.content.res.Configuration
-import android.content.pm.PackageManager
 import android.annotation.TargetApi
 import android.net.Uri
 import android.os.Build
@@ -314,25 +312,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /** 启用旧版或当前 launcher alias，并关闭另一个，避免桌面出现重复图标。 */
-    private fun setLegacyLauncherIcon(useLegacy: Boolean) {
-        val classPrefix = MainActivity::class.java.name.substringBeforeLast('.')
-        val modern = ComponentName(this, "$classPrefix.LauncherModernIcon")
-        val legacy = ComponentName(this, "$classPrefix.LauncherLegacyIcon")
-        val selected = if (useLegacy) legacy else modern
-        val disabled = if (useLegacy) modern else legacy
-        packageManager.setComponentEnabledSetting(
-            selected,
-            PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-            PackageManager.DONT_KILL_APP,
-        )
-        packageManager.setComponentEnabledSetting(
-            disabled,
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-            PackageManager.DONT_KILL_APP,
-        )
-    }
-
     /// 复用后台（headless）FlutterEngine：线控耳机「唤醒播放」被拉起时，
     /// AudioPlaybackService 已创建并运行完整 App（main() 已执行、PlayerProvider
     /// 正在恢复播放状态）。此处返回缓存引擎，避免创建第二个 FlutterEngine 导致
@@ -402,26 +381,6 @@ class MainActivity : FlutterActivity() {
                     "getCurrent" -> result.success(
                         if (RenderEngineManager.isImpellerBuild(this)) "impeller" else "skia"
                     )
-                    else -> result.notImplemented()
-                }
-            }
-
-        // 设置页切换当前启用的 launcher alias；DONT_KILL_APP 保证图标变更不打断播放。
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.md3music.md3music/app_icon")
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "setLegacyIcon" -> {
-                        val useLegacy = call.arguments as? Boolean
-                        if (useLegacy == null) {
-                            result.error("INVALID_ARGUMENT", "enabled 必须为布尔值", null)
-                        } else {
-                            runCatching { setLegacyLauncherIcon(useLegacy) }
-                                .onSuccess { result.success(null) }
-                                .onFailure {
-                                    result.error("ICON_SWITCH_FAILED", it.message, null)
-                                }
-                        }
-                    }
                     else -> result.notImplemented()
                 }
             }
@@ -517,6 +476,11 @@ class MainActivity : FlutterActivity() {
                         val timeout = Runnable { completeFloatingStart(FloatingLyricService.viewAdded) }
                         pendingFloatingTimeout = timeout
                         floatingHandler.postDelayed(timeout, FLOATING_START_TIMEOUT_MS)
+                        // 初始可见性要在 startForegroundService 之前置位：服务 onCreate
+                        // 里 createFloatingView 会直接按它设 rootView 可见性，
+                        // 避免 App 前台开启时窗口先显后隐地闪一下。
+                        FloatingLyricService.initialVisible =
+                            call.argument<Boolean>("visible") ?: true
                         val intent = Intent(this, FloatingLyricService::class.java).apply {
                             action = FloatingLyricService.ACTION_UPDATE_LYRIC
                             putExtra(FloatingLyricService.EXTRA_LYRIC, call.argument<String>("lyric") ?: "")
@@ -570,6 +534,27 @@ class MainActivity : FlutterActivity() {
                     startService(intent)
                     result.success(true)
                 }
+                // 窗口显隐：App 前后台切换时调用，服务保持常驻。
+                // 服务未运行时静默成功（桌面歌词没开，没什么可隐藏的）。
+                "setFloatingLyricVisible" -> {
+                    val visible = call.argument<Boolean>("visible") ?: true
+                    FloatingLyricService.initialVisible = visible
+                    if (FloatingLyricService.isRunning) {
+                        // 同进程直达，省去 Intent 中转与 startService 的调度延迟；
+                        // 拿不到实例时回退走 Intent（服务正在重建的竞态窗口）。
+                        val svc = FloatingLyricService.instance
+                        if (svc != null) {
+                            svc.setWindowVisible(visible)
+                        } else {
+                            val intent = Intent(this, FloatingLyricService::class.java).apply {
+                                action = FloatingLyricService.ACTION_SET_VISIBLE
+                                putExtra(FloatingLyricService.EXTRA_VISIBLE, visible)
+                            }
+                            startService(intent)
+                        }
+                    }
+                    result.success(true)
+                }
                 "hasOverlayPermission" -> {
                     result.success(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(this) else true)
                 }
@@ -587,6 +572,9 @@ class MainActivity : FlutterActivity() {
                         }
                         call.intArg(FloatingLyricService.EXTRA_OPACITY)?.let {
                             putExtra(FloatingLyricService.EXTRA_OPACITY, it)
+                        }
+                        call.intArg(FloatingLyricService.EXTRA_WIDTH_RATIO)?.let {
+                            putExtra(FloatingLyricService.EXTRA_WIDTH_RATIO, it)
                         }
                         call.argument<Boolean>(FloatingLyricService.EXTRA_LOCKED)?.let {
                             putExtra(FloatingLyricService.EXTRA_LOCKED, it)

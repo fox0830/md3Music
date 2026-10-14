@@ -141,19 +141,15 @@ void main() {
     expect(find.byKey(pageKey), findsNothing);
   });
 
-  test('退出快于进入：时长比 0.55~0.75，且路由 getter 与常量同源', () {
+  test('进出等长 500ms，且路由 getter 与常量同源', () {
+    // 原断言是「退出应快于进入」（比值 0.55~0.75，依据 M3 动效准则）。
+    // 2026-10-14 用户明确要求两端统一到 500ms，故改为钉住等长这一新预期。
+    // 真正要防的东西没变：两个时长不能各自漂移、路由 getter 必须与常量同源。
+    expect(kPlayerExpandDuration, const Duration(milliseconds: 500));
     expect(
-      kPlayerCollapseDuration < kPlayerExpandDuration,
-      isTrue,
-      reason: '动效准则：退出应快于进入',
-    );
-    final double ratio =
-        kPlayerCollapseDuration.inMilliseconds /
-        kPlayerExpandDuration.inMilliseconds;
-    expect(
-      ratio,
-      inInclusiveRange(0.55, 0.75),
-      reason: '退出/进入时长比应停在约 0.65，偏离过多即观感退化',
+      kPlayerCollapseDuration,
+      kPlayerExpandDuration,
+      reason: '进出等长是当前的产品决定；要恢复「退出更快」需同时改这里与常量',
     );
 
     final DraggablePlayerRoute<void> route = DraggablePlayerRoute<void>(
@@ -219,7 +215,9 @@ void main() {
     );
     navigatorKey.currentState!.push(route);
     await tester.pump(); // 启动 didPush 的 forward 动画
-    await tester.pump(const Duration(milliseconds: 200)); // 半程（400ms）
+    // 半程由常量推导，别写死毫秒数：时长一调整，写死的数就不再是"半程"，
+    // 断言会在缓动完全正常的情况下误报（2026-10-14 把时长翻倍时踩到）。
+    await tester.pump(kPlayerExpandDuration ~/ 2);
     expect(
       playerExpansion.value,
       inInclusiveRange(0.5, 0.9),
@@ -243,7 +241,7 @@ void main() {
 
     navigatorKey.currentState!.pop();
     await tester.pump(); // 启动 reverse
-    await tester.pump(const Duration(milliseconds: 130)); // 半程（260ms）
+    await tester.pump(kPlayerCollapseDuration ~/ 2); // 半程，同上由常量推导
     expect(
       playerExpansion.value,
       lessThan(0.5),
