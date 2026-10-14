@@ -52,15 +52,19 @@ private const val KARAOKE_LOG = "KaraokeDebug"
 class FloatingLyricService : Service() {
     private var windowManager: WindowManager? = null
     private var rootView: LinearLayout? = null
+
     /** 面板上区：歌词预览，常驻可见。 */
     private var lyricArea: View? = null
+
     /** 面板下区的外层容器：展开/收起动画就作用在它的高度上（负责"露出多少"）。 */
     private var controlHolder: FrameLayout? = null
+
     /** 面板下区的真实内容：按钮行 + 进度条 + 设置面板。 */
     private var controlInner: View? = null
     private var lyricText1: GradientTextView? = null
     private var lyricText2: GradientTextView? = null
     private var params: WindowManager.LayoutParams? = null
+
     // SCREEN_OFF/ON 广播接收器（onCreate 注册，onDestroy 注销）
     private var screenReceiver: BroadcastReceiver? = null
 
@@ -75,15 +79,18 @@ class FloatingLyricService : Service() {
     private var isDragging = false
     private var dragStartTime = 0L
     private var expanded = false
+
     /// 下区高度动画。重复触发必须先 cancel —— 否则两个 animator 同时改同一份
     /// layoutParams.height，窗口高度会来回跳。
     private var heightAnimator: ValueAnimator? = null
+
     /// 本次按下的落点是否在上区（歌词预览）；只有落在上区的轻点才展开/收起。
     private var touchOnLyricArea = false
     private var locked = false
 
     // config
     private var fontSizeSp = 18f
+
     // 「显示大小」档位（Dart 侧 ThemeProvider.displayScale）。
     // 与 fontSizeSp 分开存：± 按钮与回传 Dart 的配置始终用未缩放的基准字号，
     // 只在 setTextSize 时乘上本系数，避免往返放大 / 撞上 12~32sp 的钳制区间。
@@ -94,6 +101,7 @@ class FloatingLyricService : Service() {
     private var gradientEnd = 0xFFFF00FF.toInt()
     private var unplayedColor = 0xFFFFFFFF.toInt()
     private var isPlayingFlag = false
+
     // 当前悬浮窗宽度与歌词换行最大宽度（旋转时随 displayMetrics 重算）
     private var windowWidthPx = 0
     private var lyricMaxWidthPx = 0
@@ -113,6 +121,7 @@ class FloatingLyricService : Service() {
     // views
     private var lockButton: ImageView? = null
     private var playPauseButton: ImageView? = null
+
     /** 设置按钮：面板收起时是「设置」图标，展开时换成「关闭」（X）。 */
     private var settingsButton: ImageView? = null
     private var progressBar: LyricProgressBar? = null
@@ -124,10 +133,13 @@ class FloatingLyricService : Service() {
     // 原生 View 没有数据绑定，只能显式持有引用在 applyConfig / 回调里刷新。
     private var colorModeSeg: SegmentControl? = null
     private var lineCountSeg: SegmentControl? = null
+
     /** 四个预设色块的外框 + 第 5 个「自定义」外框：选中时点亮描边环。 */
     private var presetFrames: List<View> = emptyList()
+
     /** 「自定义」色块的渐变本体：随自定义槽位实时重画。 */
     private var customSwatchView: View? = null
+
     // 自定义配色槽位。拖色相/未唱写这里，**不写** gradientStart 那份 ——
     // 预设是常量不能被拖坏，第 5 个「自定义」色块读的就是这份。
     private var customStart = 0xFF00E5FF.toInt()
@@ -145,6 +157,7 @@ class FloatingLyricService : Service() {
     private val themedTextButtons = mutableListOf<TextView>()
     private val themedThumbs = mutableListOf<SeekBar>()
     private val themedSegments = mutableListOf<SegmentControl>()
+
     /**
      * 最近一次选中的预设下标（**记忆**，不是"当前亮哪个环"）。
      *
@@ -161,6 +174,7 @@ class FloatingLyricService : Service() {
     companion object {
         private const val TAG = "FloatingLyricService"
         const val CHANNEL_ID = "floating_lyric_channel"
+
         // 注意：不能与媒体3 now-playing 通知（1001）撞号，否则桌面歌词一开
         // startForeground(1001, ...) 会直接覆盖媒体通知 → 媒体卡片消失。
         // AudioPlaybackService 保活通知用 1002，这里用 1003 保持唯一。
@@ -174,18 +188,22 @@ class FloatingLyricService : Service() {
         const val ALIGN_CENTER = 0
         const val ALIGN_START = 1
         const val ALIGN_END = 2
+
         // 阶段8：桌面歌词运行标志。开启期间本服务常驻 FGS（1003 可见通知）撑住
         // 进程前台，AudioPlaybackService 据此让位（不再显示保活空通知 1002）。
         @Volatile
         var isRunning = false
+
         // 悬浮窗窗口是否已真正 addView 成功。与 isRunning 分开存：MainActivity
         // 据此区分"服务存活但窗口未添加"（权限竞态/显示层拒绝）与真正可显示，
         // 并回填 startFloatingLyric 的真实结果，杜绝开关状态与窗口不一致。
         @Volatile
         var viewAdded = false
+
         // 屏幕亮灭（熄屏时通知 Dart 侧 tick 休眠省电；点亮恢复）
         @Volatile
         var screenOn = true
+
         // 运行中的服务实例（同进程直达调用用；onCreate 置位、onDestroy 清空）
         @Volatile
         var instance: FloatingLyricService? = null
@@ -196,6 +214,7 @@ class FloatingLyricService : Service() {
         const val ACTION_SET_PLAYING = "com.md3music.md3music.SET_PLAYING"
         const val ACTION_STOP = "com.md3music.md3music.STOP_LYRIC"
         const val ACTION_TOGGLE_LOCK = "com.md3music.md3music.TOGGLE_LOCK"
+
         // 窗口显隐（App 回前台时隐藏，退后台再显示）。与 ACTION_STOP 的区别：
         // 服务continues 常驻，歌词/进度推送与 FGS 通知都不中断，只是窗口不可见。
         const val ACTION_SET_VISIBLE = "com.md3music.md3music.SET_VISIBLE"
@@ -219,6 +238,7 @@ class FloatingLyricService : Service() {
         const val EXTRA_DOUBLE_LINE = "doubleLine"
         const val EXTRA_OPACITY = "opacity"
         const val EXTRA_WIDTH_RATIO = "widthRatio"
+
         /// 卡片宽度占屏宽的百分比上下限，与设置页滑块的区间一一对应。
         const val MIN_WIDTH_RATIO = 30
         const val MAX_WIDTH_RATIO = 95
@@ -226,10 +246,13 @@ class FloatingLyricService : Service() {
         const val EXTRA_GRADIENT_START = "gradientStart"
         const val EXTRA_GRADIENT_END = "gradientEnd"
         const val EXTRA_UNPLAYED_COLOR = "unplayedColor"
+
         /** 配色模式：0 = 预设配色，1 = 自调颜色（与 Dart 侧 kColorMode* 一致）。 */
         const val EXTRA_COLOR_MODE = "colorMode"
+
         /** 最近选中的预设下标；切回预设配色时据此恢复。 */
         const val EXTRA_PRESET_INDEX = "activePreset"
+
         /** 自定义配色槽位：拖色相/未唱写这里，预设永远是常量。 */
         const val EXTRA_CUSTOM_GRAD_START = "customStart"
         const val EXTRA_CUSTOM_GRAD_END = "customEnd"
@@ -291,7 +314,8 @@ class FloatingLyricService : Service() {
                 addAction(Intent.ACTION_SCREEN_ON)
             }
             registerReceiver(screenReceiver, screenFilter)
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
         isRunning = true
         instance = this
     }
@@ -319,6 +343,7 @@ class FloatingLyricService : Service() {
                     intent.getLongExtra(EXTRA_LINE_POSITION, 0L)
                 )
             }
+
             ACTION_UPDATE_TITLE -> {}
             ACTION_UPDATE_PROGRESS -> {
                 handleUpdateProgress(
@@ -326,6 +351,7 @@ class FloatingLyricService : Service() {
                     intent.getLongExtra(EXTRA_DURATION, 0L)
                 )
             }
+
             ACTION_SET_CONFIG -> {
                 handleSetConfig(
                     intent.getFloatExtra(EXTRA_FONT_SIZE, fontSizeSp),
@@ -344,16 +370,20 @@ class FloatingLyricService : Service() {
                     intent.getIntExtra(EXTRA_WIDTH_RATIO, widthRatio)
                 )
             }
+
             ACTION_SET_PLAYING -> {
                 handleSetPlaying(intent.getBooleanExtra(EXTRA_IS_PLAYING, isPlayingFlag))
             }
+
             ACTION_STOP -> {
                 stopSelf()
                 return START_NOT_STICKY
             }
+
             ACTION_TOGGLE_LOCK -> {
                 setLocked(!locked)
             }
+
             ACTION_SET_VISIBLE -> {
                 setWindowVisible(intent.getBooleanExtra(EXTRA_VISIBLE, true))
             }
@@ -376,8 +406,10 @@ class FloatingLyricService : Service() {
 
     /// 同进程直达调用入口（MainActivity handler 直接调用，省去 Intent 中转）。
     /// 与 onStartCommand 分支共用同一实现，保证两条路径行为一致。
-    fun handleUpdateLyric(lyric: String, nextLyric: String?, placeholder: String,
-                          wordsJson: String, basePosMs: Long) {
+    fun handleUpdateLyric(
+        lyric: String, nextLyric: String?, placeholder: String,
+        wordsJson: String, basePosMs: Long
+    ) {
         updateLyric(lyric, nextLyric, placeholder, parseWords(wordsJson), basePosMs)
     }
 
@@ -390,19 +422,21 @@ class FloatingLyricService : Service() {
         isPlayingFlag = playing
         Log.d(TAG, "SET_PLAYING -> $isPlayingFlag")
         playPauseButton?.setImageResource(
-            if (isPlayingFlag) android.R.drawable.ic_media_pause
-            else android.R.drawable.ic_media_play
+            if (isPlayingFlag) R.drawable.pause
+            else R.drawable.play
         )
         lyricText1?.onKaraokePlayingChanged(isPlayingFlag)
     }
 
     /// 可空参数 = 字段不变（保持与 intent extra 缺省语义一致）
-    fun handleSetConfig(fontSize: Float?, displayScale: Float?, doubleLine: Boolean?,
-                        opacity: Int?, locked: Boolean?,
-                        gradientStart: Int?, gradientEnd: Int?, unplayedColor: Int?,
-                        colorMode: Int?, activePreset: Int?,
-                        customStart: Int?, customEnd: Int?, customUnplayed: Int?,
-                        widthRatio: Int? = null) {
+    fun handleSetConfig(
+        fontSize: Float?, displayScale: Float?, doubleLine: Boolean?,
+        opacity: Int?, locked: Boolean?,
+        gradientStart: Int?, gradientEnd: Int?, unplayedColor: Int?,
+        colorMode: Int?, activePreset: Int?,
+        customStart: Int?, customEnd: Int?, customUnplayed: Int?,
+        widthRatio: Int? = null
+    ) {
         fontSize?.let { fontSizeSp = it }
         displayScale?.let { this.displayScale = it }
         // 宽度变了要立刻重排窗口：WindowManager.LayoutParams.width 不随 requestLayout
@@ -440,8 +474,8 @@ class FloatingLyricService : Service() {
         if (locked == value) return
         locked = value
         lockButton?.setImageResource(
-            if (locked) android.R.drawable.ic_lock_lock
-            else android.R.drawable.ic_lock_idle_lock
+            if (locked) R.drawable.lock
+            else R.drawable.lock
         )
         applyLockState()
         sendConfigUpdate()
@@ -462,13 +496,15 @@ class FloatingLyricService : Service() {
             p.flags = p.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
             try {
                 wm.updateViewLayout(root, p)
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            }
         } else {
             // Remove FLAG_NOT_TOUCHABLE
             p.flags = p.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
             try {
                 wm.updateViewLayout(root, p)
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -585,17 +621,17 @@ class FloatingLyricService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val lockIcon = if (locked) android.R.drawable.ic_lock_lock
-                       else android.R.drawable.ic_lock_idle_lock
+        val lockIcon = if (locked) R.drawable.lock
+        else R.drawable.lock
         val lockText = if (locked) "解锁歌词" else "锁定歌词"
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("MD3Music 桌面歌词")
-            .setContentText(if (locked) "已锁定 · 点击穿透" else "已开启 · 可拖动")
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentTitle("桌面歌词")
+            .setContentText(if (locked) "桌面歌词已锁定" else "桌面歌词未锁定")
+            .setSmallIcon(R.drawable.play)
             .setOngoing(true)
             .addAction(lockIcon, lockText, lockPendingIntent)
-            .addAction(android.R.drawable.ic_media_pause, "关闭", stopPendingIntent)
+//            .addAction(android.R.drawable.ic_media_pause, "关闭", stopPendingIntent)
             .build()
     }
 
@@ -713,11 +749,11 @@ class FloatingLyricService : Service() {
         }
         val iconSize = dp(20)
         val iconPad = dp(10)
-        lockButton = makeIconButton(android.R.drawable.ic_lock_idle_lock) { setLocked(!locked) }
-        val prevButton = makeIconButton(android.R.drawable.ic_media_previous) { sendAction("previous") }
-        playPauseButton = makeIconButton(android.R.drawable.ic_media_play) { sendAction("play") }
-        val nextButton = makeIconButton(android.R.drawable.ic_media_next) { sendAction("next") }
-        val settingsBtn = makeIconButton(android.R.drawable.ic_menu_preferences) { toggleSettingsPanel() }
+        lockButton = makeIconButton(R.drawable.lock) { setLocked(!locked) }
+        val prevButton = makeIconButton(R.drawable.previous) { sendAction("previous") }
+        playPauseButton = makeIconButton(R.drawable.play) { sendAction("play") }
+        val nextButton = makeIconButton(R.drawable.next) { sendAction("next") }
+        val settingsBtn = makeIconButton(R.drawable.setting) { toggleSettingsPanel() }
         // 存引用：设置面板开合时这颗按钮要在「设置」与「关闭」之间换图标，
         // 见 applySettingsButtonIcon()。
         settingsButton = settingsBtn
@@ -827,7 +863,8 @@ class FloatingLyricService : Service() {
         val root = rootView ?: return
         try {
             windowManager?.updateViewLayout(root, p)
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
 
     /// 按当前 [widthRatio] 重排窗口宽度（设置页拖动「卡片宽度」时调用）。
@@ -855,7 +892,8 @@ class FloatingLyricService : Service() {
         root.requestLayout()
         try {
             wm.updateViewLayout(root, p)
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
 
     private fun relayoutForOrientation() {
@@ -885,7 +923,8 @@ class FloatingLyricService : Service() {
 
         try {
             wm.updateViewLayout(root, p)
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
 
     private fun toggleExpanded() {
@@ -937,8 +976,8 @@ class FloatingLyricService : Service() {
     private fun applySettingsButtonIcon() {
         val opened = settingsPanel?.visibility == View.VISIBLE
         settingsButton?.setImageResource(
-            if (opened) android.R.drawable.ic_menu_close_clear_cancel
-            else android.R.drawable.ic_menu_preferences
+            if (opened) R.drawable.close
+            else R.drawable.setting
         )
     }
 
@@ -1298,7 +1337,7 @@ class FloatingLyricService : Service() {
                 index < PRESETS.size && index == matchedPresetIndex()
             } else {
                 index == PRESETS.size &&
-                    gradientStart == customStart && gradientEnd == customEnd
+                        gradientStart == customStart && gradientEnd == customEnd
             }
             frame.background = GradientDrawable().apply {
                 cornerRadius = dp(13).toFloat()
@@ -1423,9 +1462,17 @@ class FloatingLyricService : Service() {
         val seek = SeekBar(this).apply {
             max = 360
             progress = initialHue
-            val rainbow = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(
-                Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.MAGENTA, Color.RED
-            ))
+            val rainbow = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(
+                    Color.RED,
+                    Color.YELLOW,
+                    Color.GREEN,
+                    Color.CYAN,
+                    Color.BLUE,
+                    Color.MAGENTA,
+                    Color.RED
+                )
+            )
             rainbow.cornerRadius = dp(4).toFloat()
             progressDrawable = insetTrack(rainbow)
             thumb = sliderThumb(0xFFFFFFFF.toInt())
@@ -1433,13 +1480,18 @@ class FloatingLyricService : Service() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             themedThumbs.add(this)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                override fun onProgressChanged(
+                    seekBar: SeekBar?,
+                    progress: Int,
+                    fromUser: Boolean
+                ) {
                     if (fromUser) {
                         val newHsv = floatArrayOf(progress.toFloat(), 1f, 1f)
                         onColor(Color.HSVToColor(newHsv))
                     }
                     value.text = "${progress.coerceIn(0, 360)}°"
                 }
+
                 override fun onStartTrackingTouch(seekBar: SeekBar?) {}
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     onCommitted()
@@ -1511,10 +1563,15 @@ class FloatingLyricService : Service() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             themedThumbs.add(this)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                override fun onProgressChanged(
+                    seekBar: SeekBar?,
+                    progress: Int,
+                    fromUser: Boolean
+                ) {
                     if (fromUser) onValue(progress)
                     value.text = format(progress)
                 }
+
                 override fun onStartTrackingTouch(seekBar: SeekBar?) {}
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     onCommitted()
@@ -1601,7 +1658,10 @@ class FloatingLyricService : Service() {
                 setStroke(1, android.content.res.ColorStateList.valueOf(0x55FFFFFF))
             }
             background = gd
-            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            val lp = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
             lp.setMargins(dp(6), 0, dp(6), 0)
             layoutParams = lp
             themedTextButtons.add(this)
@@ -1620,7 +1680,8 @@ class FloatingLyricService : Service() {
     }
 
     private fun sendAction(action: String) {
-        val engine = io.flutter.embedding.engine.FlutterEngineCache.getInstance().get("md3music_engine")
+        val engine =
+            io.flutter.embedding.engine.FlutterEngineCache.getInstance().get("md3music_engine")
         if (engine != null) {
             io.flutter.plugin.common.MethodChannel(
                 engine.dartExecutor.binaryMessenger,
@@ -1632,7 +1693,8 @@ class FloatingLyricService : Service() {
     }
 
     private fun sendConfigUpdate() {
-        val engine = io.flutter.embedding.engine.FlutterEngineCache.getInstance().get("md3music_engine")
+        val engine =
+            io.flutter.embedding.engine.FlutterEngineCache.getInstance().get("md3music_engine")
         val args = hashMapOf(
             "fontSize" to fontSizeSp,
             "doubleLine" to doubleLine,
@@ -1682,6 +1744,7 @@ class FloatingLyricService : Service() {
                     } ?: false
                     true
                 }
+
                 MotionEvent.ACTION_MOVE -> {
                     val dy = event.rawY - initialTouchY
                     val dx = event.rawX - initialTouchX
@@ -1697,6 +1760,7 @@ class FloatingLyricService : Service() {
                     }
                     true
                 }
+
                 MotionEvent.ACTION_UP -> {
                     if (isDragging) {
                         params?.y?.let { y ->
@@ -1727,6 +1791,7 @@ class FloatingLyricService : Service() {
                     isDragging = false
                     true
                 }
+
                 else -> false
             }
         }
@@ -1737,7 +1802,10 @@ class FloatingLyricService : Service() {
         viewAdded = false
         instance = null
         screenReceiver?.let {
-            try { unregisterReceiver(it) } catch (_: Exception) {}
+            try {
+                unregisterReceiver(it)
+            } catch (_: Exception) {
+            }
         }
         screenReceiver = null
         screenOn = true
@@ -1746,12 +1814,14 @@ class FloatingLyricService : Service() {
             startService(Intent(this, AudioPlaybackService::class.java).apply {
                 action = AudioPlaybackService.ACTION_REFRESH_FOREGROUND
             })
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
         super.onDestroy()
         rootView?.let {
             try {
                 windowManager?.removeView(it)
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            }
         }
     }
 }
@@ -1768,8 +1838,10 @@ private const val kStrokeWidthRatio = 0.08f
 class GradientTextView(context: Context) : TextView(context) {
     private var startColor = 0xFF00E5FF.toInt()
     private var endColor = 0xFFFF00FF.toInt()
+
     // 未唱色（白色），用于逐字二分色模式下绘制未唱部分
     private var unplayedColor = 0xFFFFFFFF.toInt()
+
     // 见 setAlwaysUnplayed：双行模式第二行恒以未唱色绘制
     private var alwaysUnplayed = false
 
@@ -1804,8 +1876,10 @@ class GradientTextView(context: Context) : TextView(context) {
     private var karaokeBasePosMs = 0L
     private var karaokeBaseElapsedMs = 0L
     private var karaokeActive = false
+
     // 真冻结标志：暂停期间 estimatedKaraokePos 恒返回固定位（不按墙钟增长）
     private var karaokePaused = false
+
     // 多行已唱区域 clip：Path 成员复用，避免 onDraw 每帧分配
     private val krcClipPath = Path()
 
@@ -1908,6 +1982,7 @@ class GradientTextView(context: Context) : TextView(context) {
                     w += wordWidths[i] * ((pos - t.startMs).toFloat() / t.durMs)
                     break
                 }
+
                 else -> break
             }
         }
@@ -2041,8 +2116,9 @@ class GradientTextView(context: Context) : TextView(context) {
                     for (line in 0 until textLayout.lineCount) {
                         val lineStart = textLayout.getLineStart(line)
                         val lineWidth = textLayout.getLineWidth(line)
-                        val sungInLine = (sungWidth - charWidths[lineStart.coerceAtMost(text.length)])
-                            .coerceIn(0f, lineWidth)
+                        val sungInLine =
+                            (sungWidth - charWidths[lineStart.coerceAtMost(text.length)])
+                                .coerceIn(0f, lineWidth)
                         if (sungInLine <= 0f) break
                         val right = if (sungInLine >= lineWidth - 0.5f) {
                             textLayout.getLineRight(line)
@@ -2098,6 +2174,7 @@ class LyricProgressBar(context: Context) : View(context) {
     private val playedPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val unplayedPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val barHeight = 6f
+
     // 零分配：RectF 成员复用；shader 覆盖全宽缓存复用，
     // 已唱部分按比例露出渐变——渐变不再随进度被"压缩"
     private val bgRect = RectF()
