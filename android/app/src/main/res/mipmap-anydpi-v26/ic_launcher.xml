@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面图标（API 26+ 自适应形态）：音符插画 + 紫底渐变 + 音符字形 monochrome。
+     层组合沿用原「旧版图标」分支方案；API 24/25 回退到 mipmap-nodpi/ic_launcher.png
+     的光栅图（同一张音符图，不走自适应裁切）。
+     monochrome 用 _classic 那张（音符字形），notification 小图标另用
+     ic_launcher_monochrome，两者不要混。 -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background"/>
+    <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome_classic"/>
+</adaptive-icon>
